@@ -1542,7 +1542,7 @@ nsh() {
         fi
 
         [[ $opened != yes ]] && show_cursor
-        [[ -z "$NEXT_KEY" ]] && get_key -t 0.1 NEXT_KEY
+        [[ -z "$NEXT_KEY" ]] && get_key -t $get_key_eps NEXT_KEY
     }
     NSH_CURSORCH=$'\007'
     syntax_highlight() {
@@ -2064,14 +2064,6 @@ nsh() {
                 esac
             done
         fi
-    }
-    draw_progress() {
-        local progress
-        local total=$((COLUMNS*3/10))
-        local cur=$(($1*total/100))
-        for ((i=0; i<$cur; i++)); do progress+='#'; done
-        move_cursor $LINES
-        printf '\e[37;41m\e[K%4s|%-*s|%s\e[0m' "$1%" "$total" "$progress" "$2"
     }
     open_file() {
         if [ -d "$1" ]; then
@@ -3015,7 +3007,11 @@ nsh() {
                     fi
                 else
                     fuzzy="$(fuzzy_word "$word")"
-                    IFS=$'\n' read -d "" -ra cand < <(compgen $param "$abword" | sort -u)
+                    #IFS=$'\n' read -d "" -ra cand < <(compgen $param "$abword" | sort -u)
+                    IFS=$'\n' read -d "" -ra cand < <(compgen $param | grep -iE "${fuzzy//\*/.*}" 2>/dev/null | sort -u)
+                fi
+                if [[ ${#cand[@]} == 0 ]]; then
+                    IFS=$'\n' read -d "" -ra cand < <(eval ls -d */$fuzzy */*/$fuzzy */*/*/$fuzzy ../$fuzzy 2>/dev/null)
                 fi
             fi
             [[ -n $word && ${#cand[@]} -eq 0 ]] && cand=("> Ctrl+F for Deep Search")
@@ -4444,11 +4440,9 @@ nsh() {
                             bookmarks[$i]="$line" && ((i++))
                         done < <(printf '%s\n' "${bookmarks[@]}" | sort)
                         printf '%s\n' "${bookmarks[@]}" > ~/.config/nsh/bookmarks
-                        move_cursor $LINES
-                        printf "\e[37;41mBookmarked: [$KEY] $addr\e[K\e[0m"
+                        dialog "Bookmarked:\n[$KEY] $addr"
                     else
-                        move_cursor $LINES
-                        printf '\r\e[37;41m\e[KThis KEY cannot be used for bookmarks\e[0m'
+                        dialog "This KEY cannot be used for bookmarks"
                     fi
                     ;;
                 "'"|'"')
