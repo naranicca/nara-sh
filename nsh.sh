@@ -189,10 +189,11 @@ nshcp() {
             [[ -d "$d" ]] && return
             [[ $skip_all == yes ]] && return
             if [[ $overwrite_all == no ]]; then
-                $(command diff --brief "$s" "$d" &>/dev/null) && return
+                #$(command diff --brief "$s" "$d" &>/dev/null) && return
                 local ssize=$(stat "$STAT_FSIZE_PARAM" "$s" 2>/dev/null)
                 local dsize=$(stat "$STAT_FSIZE_PARAM" "$d" 2>/dev/null)
-                echo -e "$NSH_PROMPT "$'\e[4m'"${d/$HOME\//$tilde\/}"$'\e[0m'" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize))\e[K"
+                local cmp= && $(command diff --brief "$s" "$d" &>/dev/null) && cmp=', same file'
+                echo -e "$NSH_PROMPT "$'\e[4m'"${d/$HOME\//$tilde\/}"$'\e[0m'" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)\e[K"
                 local ans="$(menu --popup 'Overwrite' 'Overwrite all' 'Skip' 'Skip all' 'Rename' 'Cancel' --key o 'echo Overwrite' --key s 'echo Skip' --key r 'echo Rename' --footer "$(draw_shortcut o Overwrite s Skip r Rename)" --cursor $'\e[31;100m>' --sel-color '0;1;100')"
                 case "$ans" in
                     'Overwrite') ;;
@@ -208,6 +209,7 @@ nshcp() {
                             d="${d%/*}/$STRING"
                             echo
                         fi
+                        [[ $opened == yes ]] && hide_cursor
                         ;;
                     'Cancel') echo -e "$NSH_PROMPT Cancelled"; cancel=yes; return;;
                     *) echo '    Skipped' && return;;
@@ -2243,7 +2245,7 @@ nsh() {
         git_stat_c=0
         git_mark=()
         local tmp=
-        while IFS='\n' read line; do
+        while read line; do
             case "$line" in
                 *not\ a\ git*|*Not\ a\ git*|*Untracked*)
                     break
