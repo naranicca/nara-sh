@@ -3460,7 +3460,7 @@ nsh() {
                         local prefix="$(date +%F\ %T)"
                         [[ $NSH_PROMPT_SHOW_TIME -eq 0 ]] && prefix=
                         cursor=-1
-                        print_prompt "$prefix"
+                        subprompt= && print_prompt "$prefix"
                         hide_usage
                         echo
                         STRING="$(echo "$STRING" | sed -e 's/^[ ]*//' -e 's/[ ]*$//')"
