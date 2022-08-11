@@ -181,7 +181,7 @@ nshcp() {
     local idx=0
     local num_thread=$(($(get_num_cpu)*2))
     local pids=()
-    [[ $opened == yes ]] && move_cursor 2 && enable_line_wrapping && set +m
+    [[ $opened == yes ]] && move_cursor 2 && enable_line_wrapping && set +m && echo -e "$NSH_PROMPT nshcp $@\e[K"
     __worker() {
         local s="$1"
         local d="$2" && [[ -d "$d" ]] && d="$d/${s##*/}"
@@ -193,27 +193,32 @@ nshcp() {
                 local ssize=$(stat "$STAT_FSIZE_PARAM" "$s" 2>/dev/null)
                 local dsize=$(stat "$STAT_FSIZE_PARAM" "$d" 2>/dev/null)
                 local cmp= && $(command diff --brief "$s" "$d" &>/dev/null) && cmp=', same file'
-                echo -e "$NSH_PROMPT "$'\e[4m'"${d/$HOME\//$tilde\/}"$'\e[0m'" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)\e[K"
+                #echo -e "$NSH_PROMPT "$'\e[4m'"${d/$HOME\//$tilde\/}"$'\e[0m'" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)\e[K"
+                echo -e "$NSH_PROMPT "$(print_filename "$d")" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)\e[K"
                 local ans="$(menu --popup 'Overwrite' 'Overwrite all' 'Skip' 'Skip all' 'Rename' 'Cancel' --key o 'echo Overwrite' --key s 'echo Skip' --key r 'echo Rename' --footer "$(draw_shortcut o Overwrite s Skip r Rename)" --cursor $'\e[31;100m>' --sel-color '0;1;100')"
-                case "$ans" in
-                    'Overwrite') ;;
-                    'Overwrite all') overwrite_all=yes;;
-                    #'Skip') return;;
-                    'Skip all') skip_all=yes && return;;
-                    'Rename')
-                        echo -en "$NSH_PROMPT New name: "
-                        read_string "${d##*/}"
-                        if [[ -z $STRING ]]; then
-                            echo '^C'
-                        else
-                            d="${d%/*}/$STRING"
-                            echo
-                        fi
-                        [[ $opened == yes ]] && hide_cursor
-                        ;;
-                    'Cancel') echo -e "$NSH_PROMPT Cancelled"; cancel=yes; return;;
-                    *) echo '    Skipped' && return;;
-                esac
+                while true; do
+                    case "$ans" in
+                        'Overwrite') ;;
+                        'Overwrite all') overwrite_all=yes;;
+                        #'Skip') return;;
+                        'Skip all') skip_all=yes && return;;
+                        'Rename')
+                            echo -en "$NSH_PROMPT New name: "
+                            read_string "${d##*/}"
+                            if [[ -z $STRING ]]; then
+                                echo '^C'
+                            else
+                                d="${d%/*}/$STRING"
+                                echo
+                            fi
+                            [[ $opened == yes ]] && hide_cursor
+                            ;;
+                        'Cancel') echo -e "$NSH_PROMPT Cancelled"; cancel=yes; return;;
+                        *) echo '    Skipped' && return;;
+                    esac
+                    [[ $ans != Rename || ! -e "$d" ]] && break
+                    echo -e "$NSH_PROMPT Sorry, $(print_filename "$d") also exists."
+                done
             fi
         fi
         [[ -n "${pids[$idx]}" ]] && wait "${pids[$idx]}"
@@ -224,7 +229,7 @@ nshcp() {
     while [ $# -gt 1 ]; do
         [[ -z "$1" ]] && shift && continue
         if [[ $opened == yes ]]; then
-            echo -e "\r$NSH_PROMPT ${op##* }: $(print_filename "$1") --> $(print_filename "$dst")\e[K"
+            echo -e "\r${op##* }: $(print_filename "$1") --> $(print_filename "$dst")\e[K"
             printf '%*s' $COLUMNS ' ' | sed 's/./-/g'
             echo -ne "\r"
         fi
@@ -236,7 +241,7 @@ nshcp() {
                 if [[ -d "$tmp" && $op == *cp ]]; then
                     for i in {1..99999}; do
                         if [[ ! -d "${tmp}_($i)" ]]; then
-                            echo -e "$NSH_PROMPT $NSH_COLOR_DIR${tmp/#$HOME/$tilde}\e[0m already exists. changed name --> $NSH_COLOR_DIR${tmp/#$HOME/$tilde}_($i)\e[0m\e[K"
+                            echo -e "$NSH_PROMPT "$(print_filename "$tmp")" already exists. changed name --> $NSH_COLOR_DIR${tmp/#$HOME/$tilde}_($i)\e[0m\e[K"
                             eval "$op -r \"$1\" \"${tmp}_($i)\""
                             break
                         fi
@@ -275,7 +280,13 @@ nshcp() {
     unset __worker
     wait "${pids[@]}"
     if [[ $opened == yes ]]; then
-        dialog "Done"
+        #dialog "Done"
+        show_cursor
+        echo -en "$NSH_PROMPT Done\e[K"
+        [[ "$PWD" != "$(command cd "$dst"; echo "$PWD")" ]] && echo -en "\n$NSH_PROMPT \007Jump to the destination ($(print_filename "$dst"))?\e[K (Y/n) "
+        get_key KEY
+        [[ $KEY == Y || $KEY == y ]] && command cd "$dst"
+        hide_cursor
         disable_line_wrapping
         set -m
     fi
@@ -1001,7 +1012,7 @@ nshgrep() {
     }
     f="$(grep -IHrn --color=always $__param "$__grep_prev" . 2>/dev/null | sed -e 's/\x1b\[[0]*m/\x1b\[37m/g' -e 's/\r//g' | menu --searchable --sel-color 7 --preview grep_preview --footer '+ \e[7m / \e[0m Search \e[7mTAB\e[0m Preview \e[7m z \e[0m Zoom' | sed 's/\x1b\[[0-9;]*[mK]//g')"
     if [[ -n "$f" ]]; then
-        if [[ "$NSH_DEFAULT_EDITOR" == vi ]]; then
+        if [[ "$NSH_DEFAULT_EDITOR" == vi || "$NSH_DEFAULT_EDITOR" == vim ]]; then
             opt="${f#*:}"
             "$NSH_DEFAULT_EDITOR" -s <(echo ":${opt%%:*}") "${f%%:*}"
         else
@@ -1381,7 +1392,7 @@ nsh() {
     config load
 
     # bash version check
-    ls -I .* &>/dev/null || NSH_ITEMS_TO_HIDE=
+    (man ls 2>/dev/null | grep -- '-I.*--ignore' &>/dev/null) || NSH_ITEMS_TO_HIDE=
     get_key_eps=0.1
     read -sn 1 -t $get_key_eps _key &>/dev/null
     [[ $? -ne 142 ]] && get_key_eps=1
@@ -1424,7 +1435,7 @@ nsh() {
   \ \   |  _ \/ __|  _ \
   / /   | | | \__ \ | | |
  /_/    |_| |_|___/_| |_| ' $version
-        echo "        nsh is not a shell"
+        echo "        nsh is Not a SHell"
         enable_line_wrapping
     }
 
@@ -1543,8 +1554,8 @@ nsh() {
             fi
         fi
 
-        [[ $opened != yes ]] && show_cursor
         [[ -z "$NEXT_KEY" ]] && get_key -t $get_key_eps NEXT_KEY
+        [[ $opened != yes ]] && show_cursor
     }
     NSH_CURSORCH=$'\007'
     syntax_highlight() {
@@ -1812,11 +1823,11 @@ nsh() {
                 fi
                 if [[ $type == *ASCII* || $type == *UTF* || $type == *text* ]]; then
                     if [[ $1 == full ]]; then
-                        while IFS=$'\n' read line; do
+                        while IFS=$'\n' read -r line; do
                             list2+=("$line")
                         done < <(($NSH_TEXT_PREVIEW "${list[$focus]}" 2>/dev/null || cat "${list[$focus]}") | tr -d '\r' 2>/dev/null)
                     else
-                        while IFS=$'\n' read line; do
+                        while IFS=$'\n' read -r line; do
                             list2+=("$line")
                         done < <(($NSH_TEXT_PREVIEW "${list[$focus]}" 2>/dev/null || cat "${list[$focus]}") | head -n "$max_lines" | tr -d '\r' 2>/dev/null)
                     fi
@@ -1888,6 +1899,7 @@ nsh() {
         done < <(fn $@)
     }
     redraw() {
+        hide_cursor
         get_terminal_size
         draw_title
         hide_cursor
@@ -1957,10 +1969,60 @@ nsh() {
         format_filestat $(ls -dl "$LS_TIME_STYLE" "${list[$focus]}" 2>/dev/null)
         unset format_filestat
     }
-    draw_statusbar() {
-        move_cursor $LINES
-        local c='Less' && [[ $show_all -eq 0 ]] && c='All'
-        draw_shortcut "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "m" "Mark" "'" "Bookmarks" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Grep" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
+    show_help() {
+        if [[ $opened == yes ]]; then
+            move_cursor $LINES; printf "$NSH_COLOR_SH1 Press any key...\e[K\e[0m"
+            move_cursor 2
+            enable_line_wrapping
+        fi
+        draw_help_line() {
+            echo -e "$NSH_PROMPT $@\e[K"
+        }
+        draw_shortcut_ml() {
+            local l0=0 l1=0
+            local p=("$@")
+            while [ $# -gt 0 ]; do
+                [[ ${#1} -gt $l0 ]] && l0=${#1}
+                [[ ${#2} -gt $l1 ]] && l1=${#2}
+                shift; shift
+            done
+            local w=0 wl=$((l0+l1+4))
+            for ((i=0; i<${#p[@]}; i+=2)); do
+                [[ $((w+wl)) -ge $COLUMNS ]] && echo -e '\e[K' && w=0
+                printf "$NSH_COLOR_SH1 %-*s " $l0 "${p[$i]}"
+                printf "$NSH_COLOR_SH2 %-*s " $l1 "${p[$((i+1))]}"
+                w=$((w+wl))
+            done
+            #echo -ne "\e[0m\e[K\n$NSH_PROMPT Press any key...\e[K"
+            printf "\e[0m\e[K\n%*s\e[K" $COLUMNS ' ' | sed 's/ /-/g'
+        }
+        draw_help_line "nsh $version. designed by naranicca (naranicca@gmail.com)"
+        echo -e "\e[K"
+        if [[ $opened == yes ]]; then
+            draw_help_line "nsh supports vim keybindings. Use $NSH_COLOR_SH1 j \e[0m and $NSH_COLOR_SH1 k \e[0m to move a cursor, and use $NSH_COLOR_SH1 h \e[0m and $NSH_COLOR_SH1 l \e[0m to jump between directories."
+            draw_help_line "Press $NSH_COLOR_SH1 l \e[0m or $NSH_COLOR_SH1 TAB \e[0m on the file to see the preview.\e[K"
+            draw_help_line "Press $NSH_COLOR_SH1 ENTER \e[0m to run the file, and $NSH_COLOR_SH1 SPACE \e[0m to select files.\e[K"
+            draw_help_line "Press $NSH_COLOR_SH1 v \e[0m to edit the file using the default editor. To check the default editor, see NSH_DEFAULT_EDITOR in config.\e[K"
+            draw_help_line "See the table of important keyboard shortcuts below:\e[K"
+            local c='Less' && [[ $show_all -eq 0 ]] && c='All'
+            draw_shortcut_ml "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "i" "Rename" "I" "Touch" "dd" "Delete" "m" "Mark" "'" "Bookmarks" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Grep" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
+            show_cursor
+            get_key
+            disable_line_wrapping
+            update
+        else
+            draw_help_line "nsh's shell mode basically works just like BASH, but nsh provide more functionalities:"
+            echo -e "    - Syntax highlight"
+            echo -e "    - Auto-complete with $NSH_COLOR_SH1 TAB \e[0m key"
+            echo -e "    - Automaticcaly help page of your command pops up under the cursor"
+            echo -e "    - Show you the elapsed time and return value of your command"
+            echo -e "    - Show system stat with very simple commands such as $NSH_COLOR_SH1 cpu \e[0m, $NSH_COLOR_SH1 mem \e[0m, $NSH_COLOR_SH1 gpu \e[0m, and $NSH_COLOR_SH1 disk \e[0m"
+            echo -e "    - Advanced Search with $NSH_COLOR_SH1 ^F \e[0m"
+            echo -e "    - Easy version of grep with $NSH_COLOR_SH1 ^G \e[0m"
+            draw_help_line "To change preferences, type $NSH_COLOR_SH1 config \e[0m."
+            draw_help_line "To go back to the pane mode, press $NSH_COLOR_SH1 ESC \e[0m."
+            draw_help_line "To quit, press $NSH_COLOR_SH1 ^D \e[0m or type $NSH_COLOR_SH1 exit \e[0m."
+        fi
     }
     dialog() {
         local mode=
@@ -2416,9 +2478,9 @@ nsh() {
         draw_shortcut_yank() {
             move_cursor $LINES
             if [[ $op == 'mv' ]]; then
-                draw_shortcut "P" "Paste " "D" "Delete" "/" "Search" "F7" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+                draw_shortcut "P" "Paste " "D" "Delete" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             else
-                draw_shortcut "P" "Paste " "/" "Search" "F7" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+                draw_shortcut "P" "Paste " "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             fi
         }
 
@@ -2573,7 +2635,7 @@ nsh() {
                     else
                         nshcp "${selected[@]/#$PWD\//}" "$path"
                     fi
-                    command cd "$path"
+                    #command cd "$path"
                     last_item="$path/${list[$focus]}"
                     update
                     return
@@ -2707,7 +2769,6 @@ nsh() {
         done
         hide_cursor
         draw_title
-        #draw_statusbar
         draw_filestat
     }
     search() {
@@ -2889,7 +2950,7 @@ nsh() {
                     [[ -z $NEXT_KEY ]] && get_key -t $get_key_eps NEXT_KEY
                     [[ -z $NEXT_KEY ]] && IFS=$'\n' read -d "" -ra list < <(eval ls -d "$location$(fuzzy_word "$searchword")" 2>/dev/null | sed -e 's/\/\//\//g' -e 's/^\.\///')
                 fi
-                redraw
+                [[ -z $NEXT_KEY ]] && redraw
                 need_update=1
             fi
         done
@@ -3011,13 +3072,29 @@ nsh() {
                     fuzzy="$(fuzzy_word "$word")"
                     #IFS=$'\n' read -d "" -ra cand < <(compgen $param "$abword" | sort -u)
                     IFS=$'\n' read -d "" -ra cand < <(compgen $param | grep -iE "${fuzzy//\*/.*}" 2>/dev/null | sort -u)
+                    if [[ -n $git_stat && $word == g* ]]; then
+                        if [[ $word == gl ]]; then
+                            cand=("git log ." "${cand[@]}")
+                        elif [[ $word == gk ]]; then
+                            cand=("git checkout" "${cand[@]}")
+                        elif [[ $word == gp ]]; then
+                            cand=("git pull origin $(git_branch_name)" "${cand[@]}")
+                        elif [[ $word == gh ]]; then
+                            cand=("git push origin $(git_branch_name)" "${cand[@]}")
+                        elif [[ $word == gc ]]; then
+                            cand=("git commit" "${cand[@]}")
+                        elif [[ $word == gm ]]; then
+                            cand=("git merge" "${cand[@]}")
+                        fi
+                    fi
                 fi
                 if [[ ${#cand[@]} == 0 ]]; then
                     IFS=$'\n' read -d "" -ra cand < <(eval ls -d */$fuzzy */*/$fuzzy */*/*/$fuzzy ../$fuzzy 2>/dev/null)
                 fi
             fi
             [[ -n $word && ${#cand[@]} -eq 0 ]] && cand=("> Ctrl+F for Deep Search")
-            show_cand
+            get_key -t $get_key_eps NEXT_KEY
+            [[ $1 != force ]] && show_cand
         }
         hide_usage() {
             usage=()
@@ -3229,24 +3306,7 @@ nsh() {
             [[ "$STRING" =~ ^[\.]+$ ]] && STRING="${STRING#?}" && STRING="${STRING//./../}"
             [[ -d "$STRING" ]] && STRING="cd $STRING"
             [[ $STRING == cd\ * ]] && STRING="$STRING && ls $LS_COLOR_PARAM && pwd >~/.cache/nsh/lastdir"
-            if [[ $STRING == git* && $STRING == *\ checkout\ */* && $(get_num_words $STRING) -eq 3 ]]; then
-                echo -e "$NSH_PROMPT This could detach HEAD."
-                case "$(menu "Checkout anyway" "Create a new branch" "Cancel" --footer " " --popup --cursor $'\e[31;100m>' --sel-color '0;1;100')" in
-                    Checkout*) ;;
-                    Create*)
-                        echo -e "$NSH_PROMPT Creating a new branch..."
-                        local b="${STRING#*checkout}"
-                        echo -n "$NSH_PROMPT Branch name: " && read_string
-                        [[ -z $STRING ]] && echo '^C' && return
-                        echo
-                        STRING="git branch $STRING $b && git checkout $STRING"
-                        ;;
-                    *)
-                        echo '^C'
-                        return
-                        ;;
-                esac
-            elif [[ $STRING == git\ branch ]]; then
+            if [[ $STRING == git\ branch ]]; then
                 local branch="$(git_branch | menu --searchable --popup --footer "+ $(draw_shortcut ENTER Checkout d Delete \/ Search z Zoom)" --key d 'echo "delete $1"')"
                 if [[ -n "$branch" ]]; then
                     if [[ $branch == delete\ * ]]; then
@@ -3308,11 +3368,7 @@ nsh() {
                 echo
                 git remote -v
             elif [[ $STRING == help || $STRING == \? ]]; then
-                show_logo
-                echo -e '\e[32mnsh\e[0m is written in bash scripting language to make bash more interactive'
-                echo
-                local esc=$'\e'
-                eval help | while IFS='\n' read line; do [[ "$line" == \ * ]] && echo "$line" | sed -e "s/^\ [a-z][^ ]*/$esc[32m&$esc[0m/" -e "s/\ \ [a-z][^ ]*/$esc[32m&$esc[0m/"; done
+                show_help
             elif [[ $STRING == 2048 ]]; then
                 play2048
             else
@@ -3358,10 +3414,17 @@ nsh() {
                         fi
                     done
                 fi
-                local telapsed=$((($(get_timestamp)-tbeg+500)/1000))
                 local report=
+                if [[ $NSH_EXIT_CODE -ne 0 ]]; then
+                    if [[ $STRING == git\ pull\ * && $STRING != *--force* ]]; then
+                        echo -ne "$NSH_PROMPT git pull failed. Do you want to force git pull? (Y/n) "
+                        get_key KEY
+                        [[ Yy == *KEY* ]] && eval "$STRING --force"$'\n'"$(echo NSH_EXIT_CODE=\$?)"
+                    fi
+                    report+="\033[31m[$NSH_EXIT_CODE returned]"
+                fi
+                local telapsed=$((($(get_timestamp)-tbeg+500)/1000))
                 [[ $(get_cursor_col) -gt 1 ]] && echo $'\e[0;30;43m'"\\n"$'\e[0m'
-                [[ $NSH_EXIT_CODE -ne 0 ]] && report+="\033[31m[$NSH_EXIT_CODE returned]"
                 if [[ "$NSH_DO_NOT_SHOW_ELAPSED_TIME," != *"${STRING%% *},"* ]]; then
                     if [ $telapsed -gt 0 ]; then
                         local h=$((telapsed/3600))
@@ -3407,6 +3470,7 @@ nsh() {
                     get_key -t 1 KEY
                     if [[ -z "$KEY" ]]; then
                         fill_cand force
+                        show_cand
                         continue
                     fi
                 elif [[ ! -z $git_stat ]]; then
@@ -3546,6 +3610,8 @@ nsh() {
                         ;;
                     $'\t')
                         fill_cand force
+                        num_cand=${#cand[@]}
+                        c_cand=0 && [[ $num_cand -gt 1 ]] && show_cand
                         local pre="${STRING:0:$cursor}" && pre="${pre%$word}"
                         local post="${STRING:$cursor}"
                         [[ $pre == "$STRING " ]] && pre=''
@@ -3579,75 +3645,78 @@ nsh() {
                             fi
                             update_usage
                             print_prompt
-                            fill_cand
-                            cand_scroll=1
-                            hide_cursor
-                            if [ $c_cand -ge 0 -a $c_cand -lt $num_cand ]; then
-                                while true; do
-                                    get_key KEY
-                                    case $KEY in
-                                        $'\e')
-                                            c_cand=-1
-                                            show_cand
-                                            break
-                                            ;;
-                                        $'\177'|$'\b')
-                                            c_cand=-1
-                                            show_cand
-                                            NEXT_KEY=$'\b'
-                                            break
-                                            ;;
-                                        $'\n'|'l'|' ')
-                                            local c="${cand[$c_cand]}"
-                                            local d=' ' && [[ -d "$c" ]] && c="${c%/}" && d='/'
-                                            if [[ -e "$c" ]]; then
-                                                pre="${pre%\"}"
-                                                if ! eval "[[ -e $c ]] && echo" &>/dev/null; then
-                                                    [[ $d == / ]] && c="$c$d" && d=' '
-                                                    c="\"$c\""
+                            if [[ $num_cand -gt 1 ]]; then
+                                fill_cand
+                                cand_scroll=1
+                                hide_cursor
+                                if [ $c_cand -ge 0 -a $c_cand -lt $num_cand ]; then
+                                    while true; do
+                                        get_key KEY
+                                        case $KEY in
+                                            $'\e')
+                                                c_cand=-1
+                                                show_cand
+                                                break
+                                                ;;
+                                            $'\177'|$'\b')
+                                                c_cand=-1
+                                                show_cand
+                                                NEXT_KEY=$'\b'
+                                                break
+                                                ;;
+                                            $'\n'|'l'|' ')
+                                                local c="${cand[$c_cand]}"
+                                                local d=' ' && [[ -d "$c" ]] && c="${c%/}" && d='/'
+                                                if [[ -e "$c" ]]; then
+                                                    pre="${pre%\"}"
+                                                    if ! eval "[[ -e $c ]] && echo" &>/dev/null; then
+                                                        [[ $d == / ]] && c="$c$d" && d=' '
+                                                        c="\"$c\""
+                                                    fi
                                                 fi
-                                            fi
-                                            STRING="$pre${c/#$HOME\//$tilde/}$d"
-                                            cursor=${#STRING}
-                                            STRING="$STRING$post"
-                                            cand_scroll=0
-                                            last_word=aaaaaaaaaaa
-                                            update_usage
-                                            print_prompt
-                                            fill_cand
-                                            [[ $KEY == $'\n' ]] && { NEXT_KEY=$KEY; break; }
-                                            [[ $word == \.\/ ]] && break
-                                            [[ $num_cand == 1 && ${cand[0]} == \>\ * ]] && break
-                                            [[ $d == \  ]] && break
-                                            c_cand=0
-                                            show_cand
-                                            hide_cursor
-                                            ;;
-                                        'j'|$'\e[B')
-                                            if [ $c_cand -lt $((num_cand-1)) ]; then
-                                                ((c_cand++))
+                                                STRING="$pre${c/#$HOME\//$tilde/}$d"
+                                                cursor=${#STRING}
+                                                STRING="$STRING$post"
+                                                cand_scroll=0
+                                                last_word=aaaaaaaaaaa
+                                                update_usage
+                                                print_prompt
+                                                fill_cand
+                                                NEXT_KEY=
+                                                [[ $KEY == $'\n' ]] && { NEXT_KEY=$KEY; break; }
+                                                [[ $word == \.\/ ]] && break
+                                                [[ $num_cand == 1 && ${cand[0]} == \>\ * ]] && break
+                                                [[ $d == \  ]] && break
+                                                c_cand=0
                                                 show_cand
-                                            fi
-                                            ;;
-                                        'k'|$'\e[A')
-                                            if [ $c_cand -gt 0 ]; then
-                                                ((c_cand--))
+                                                hide_cursor
+                                                ;;
+                                            'j'|$'\e[B')
+                                                if [ $c_cand -lt $((num_cand-1)) ]; then
+                                                    ((c_cand++))
+                                                    show_cand
+                                                fi
+                                                ;;
+                                            'k'|$'\e[A')
+                                                if [ $c_cand -gt 0 ]; then
+                                                    ((c_cand--))
+                                                    show_cand
+                                                fi
+                                                ;;
+                                            'g')
+                                                c_cand=0
                                                 show_cand
-                                            fi
-                                            ;;
-                                        'g')
-                                            c_cand=0
-                                            show_cand
-                                            ;;
-                                        'G')
-                                            c_cand=$((num_cand-1))
-                                            show_cand
-                                            ;;
-                                        'v')
-                                            "$NSH_DEFAULT_EDITOR" "${cand[$c_cand]}"
-                                            ;;
-                                    esac
-                                done
+                                                ;;
+                                            'G')
+                                                c_cand=$((num_cand-1))
+                                                show_cand
+                                                ;;
+                                            'v')
+                                                "$NSH_DEFAULT_EDITOR" "${cand[$c_cand]}"
+                                                ;;
+                                        esac
+                                    done
+                                fi
                             fi
                             cand_scroll=0
                             c_cand=-1
@@ -3770,6 +3839,21 @@ nsh() {
     }
 
     nsh_main_loop() {
+        if [[ $1 == -h || $1 == --help || $1 == help ]]; then
+            echo "Usage: $0 [option]"
+            echo
+            echo "Options:"
+            echo "  -h, --help, help   show this help message and exit"
+            echo "  -v, -V, --version  show version and exit"
+            echo "  search [WORD]      start in search mode"
+            echo "  shell              start in shell mode"
+            return
+        elif [[ $1 == -v || $1 == -V || $1 == --version ]]; then
+            echo "nsh $version"
+            return
+        elif [[ $1 == shell ]]; then
+            subshell
+        fi
         open_pane
         if [[ -e "$1" ]]; then
             command cd "$1" &>/dev/null
@@ -3783,16 +3867,8 @@ nsh() {
                 update
                 NEXT_KEY=/
             fi
-        elif [[ $1 == shell ]]; then
-            NEXT_KEY=:
         else
             update
-            local t="Welcome to nsh v$version | designed by naranicca"
-            for ((i=1; i<=${#t}; i++)); do
-                [[ -z "$NEXT_KEY" ]] && get_key -t $get_key_eps NEXT_KEY
-                [[ -n "$NEXT_KEY" ]] && break
-                move_cursor $LINES; printf '\e[30;46m\e[K%s\e[0m' "${t:0:i}"
-            done
         fi
         while true; do
             while true; do
@@ -4023,7 +4099,7 @@ nsh() {
                             if [ -n "$git_stat" ]; then
                                 move_cursor 2
                                 local f="$(printf '%*s' $COLUMNS ' ')" && f="${f//\ /-}"
-                                i=$(menu "Key   Command" 'p    pull' 'h    push' '     create a branch' '     list branches' 'k    switch branch' 'm    merge a branch' 'r    move this branch to another' '     delete a branch' 'f    fetch' '     add a remote repository' 'c    commit' 'u    revert' 'e    edit commits' 'a    add files' 'd    delete files' 'l    log' 'b    blame' 's    show modified files only' '     fix conflicts' -h $max_lines --popup --header - --footer $f)
+                                i=$(menu "Key   Command" 'p    pull' 'h    push' '     create a branch' '     list branches' 'k    switch branch' 'm    merge a branch' 'r    move this branch to another' '     delete a branch' 'f    fetch' '     add a remote repository' 'c    commit' 'u    revert' 'e    edit commits' 'a    add files' 'd    delete files' 'l    log' 'b    blame' 's    show modified files only' '     fix conflicts' 'i    info' -h $max_lines --popup --header - --footer $f)
                                 disable_line_wrapping
                                 hide_cursor
                                 [[ -n "$i" ]] && git_op "${i#?????}" || redraw
@@ -4427,7 +4503,7 @@ nsh() {
                     redraw
                     ;;
                 $'\e[11~'|$'\eOP'|'?')
-                    draw_statusbar
+                    show_help
                     ;;
                 'm')
                     get_key KEY
