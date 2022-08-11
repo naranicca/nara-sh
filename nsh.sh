@@ -1424,7 +1424,7 @@ nsh() {
   \ \   |  _ \/ __|  _ \
   / /   | | | \__ \ | | |
  /_/    |_| |_|___/_| |_| ' $version
-        echo "        nsh is not a shell"
+        echo "        nsh is Not a SHell"
         enable_line_wrapping
     }
 
@@ -1888,6 +1888,7 @@ nsh() {
         done < <(fn $@)
     }
     redraw() {
+        hide_cursor
         get_terminal_size
         draw_title
         hide_cursor
@@ -1958,9 +1959,39 @@ nsh() {
         unset format_filestat
     }
     draw_statusbar() {
-        move_cursor $LINES
+        move_cursor $LINES; printf "$NSH_COLOR_SH1 Press any key...\e[K\e[0m"
+        move_cursor 2
+        enable_line_wrapping
+        echo -e "$NSH_PROMPT nsh v$version. designed by naranicca (naranicca@gmail.com)\e[K"
+        echo -e "\e[K"
+        echo -e "$NSH_PROMPT nsh supports vim keybindings. Use $NSH_COLOR_SH1 j \e[0m and $NSH_COLOR_SH1 k \e[0m to move a cursor, and use $NSH_COLOR_SH1 h \e[0m and $NSH_COLOR_SH1 l \e[0m to jump between directories.\e[K"
+        echo -e "$NSH_PROMPT Press $NSH_COLOR_SH1 l \e[0m or $NSH_COLOR_SH1 TAB \e[0m on the file to see the preview.\e[K"
+        echo -e "$NSH_PROMPT Press $NSH_COLOR_SH1 ENTER \e[0m to run the file, and $NSH_COLOR_SH1 SPACE \e[0m to select files.\e[K"
+        echo -e "$NSH_PROMPT Press $NSH_COLOR_SH1 v \e[0m to edit the file using the default editor. To check the default editor, see NSH_DEFAULT_EDITOR in config.\e[K"
+        echo -e "$NSH_PROMPT See the table of important keyboard shortcuts below:\e[K"
+        draw_shortcut_ml() {
+            local l0=0 l1=0
+            local p=("$@")
+            while [ $# -gt 0 ]; do
+                [[ ${#1} -gt $l0 ]] && l0=${#1}
+                [[ ${#2} -gt $l1 ]] && l1=${#2}
+                shift; shift
+            done
+            local w=0 wl=$((l0+l1+4))
+            for ((i=0; i<${#p[@]}; i+=2)); do
+                printf "$NSH_COLOR_SH1 %-*s " $l0 "${p[$i]}"
+                printf "$NSH_COLOR_SH2 %-*s " $l1 "${p[$((i+1))]}"
+                w=$((w+wl))
+                [[ $w -ge $COLUMNS ]] && echo -e '\e[K' && w=0
+            done
+            echo -ne "\n\e[0m$NSH_PROMPT \e[K"
+        }
         local c='Less' && [[ $show_all -eq 0 ]] && c='All'
-        draw_shortcut "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "m" "Mark" "'" "Bookmarks" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Grep" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
+        draw_shortcut_ml "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "m" "Mark" "'" "Bookmarks" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Grep" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
+        show_cursor
+        get_key
+        disable_line_wrapping
+        update
     }
     dialog() {
         local mode=
@@ -2707,7 +2738,6 @@ nsh() {
         done
         hide_cursor
         draw_title
-        #draw_statusbar
         draw_filestat
     }
     search() {
@@ -3017,6 +3047,7 @@ nsh() {
                 fi
             fi
             [[ -n $word && ${#cand[@]} -eq 0 ]] && cand=("> Ctrl+F for Deep Search")
+            get_key -t $get_key_eps NEXT_KEY
             show_cand
         }
         hide_usage() {
@@ -3229,24 +3260,7 @@ nsh() {
             [[ "$STRING" =~ ^[\.]+$ ]] && STRING="${STRING#?}" && STRING="${STRING//./../}"
             [[ -d "$STRING" ]] && STRING="cd $STRING"
             [[ $STRING == cd\ * ]] && STRING="$STRING && ls $LS_COLOR_PARAM && pwd >~/.cache/nsh/lastdir"
-            if [[ $STRING == git* && $STRING == *\ checkout\ */* && $(get_num_words $STRING) -eq 3 ]]; then
-                echo -e "$NSH_PROMPT This could detach HEAD."
-                case "$(menu "Checkout anyway" "Create a new branch" "Cancel" --footer " " --popup --cursor $'\e[31;100m>' --sel-color '0;1;100')" in
-                    Checkout*) ;;
-                    Create*)
-                        echo -e "$NSH_PROMPT Creating a new branch..."
-                        local b="${STRING#*checkout}"
-                        echo -n "$NSH_PROMPT Branch name: " && read_string
-                        [[ -z $STRING ]] && echo '^C' && return
-                        echo
-                        STRING="git branch $STRING $b && git checkout $STRING"
-                        ;;
-                    *)
-                        echo '^C'
-                        return
-                        ;;
-                esac
-            elif [[ $STRING == git\ branch ]]; then
+            if [[ $STRING == git\ branch ]]; then
                 local branch="$(git_branch | menu --searchable --popup --footer "+ $(draw_shortcut ENTER Checkout d Delete \/ Search z Zoom)" --key d 'echo "delete $1"')"
                 if [[ -n "$branch" ]]; then
                     if [[ $branch == delete\ * ]]; then
@@ -3787,7 +3801,7 @@ nsh() {
             NEXT_KEY=:
         else
             update
-            local t="Welcome to nsh v$version | designed by naranicca"
+            local t="Welcome to nsh v$version | press '?' for help"
             for ((i=1; i<=${#t}; i++)); do
                 [[ -z "$NEXT_KEY" ]] && get_key -t $get_key_eps NEXT_KEY
                 [[ -n "$NEXT_KEY" ]] && break
