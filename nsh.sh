@@ -1543,8 +1543,8 @@ nsh() {
             fi
         fi
 
-        [[ $opened != yes ]] && show_cursor
         [[ -z "$NEXT_KEY" ]] && get_key -t $get_key_eps NEXT_KEY
+        [[ $opened != yes ]] && show_cursor
     }
     NSH_CURSORCH=$'\007'
     syntax_highlight() {
@@ -1979,15 +1979,15 @@ nsh() {
             done
             local w=0 wl=$((l0+l1+4))
             for ((i=0; i<${#p[@]}; i+=2)); do
+                [[ $((w+wl)) -ge $COLUMNS ]] && echo -e '\e[K' && w=0
                 printf "$NSH_COLOR_SH1 %-*s " $l0 "${p[$i]}"
                 printf "$NSH_COLOR_SH2 %-*s " $l1 "${p[$((i+1))]}"
                 w=$((w+wl))
-                [[ $w -ge $COLUMNS ]] && echo -e '\e[K' && w=0
             done
-            echo -ne "\n\e[0m$NSH_PROMPT \e[K"
+            echo -ne "\n\e[0m$NSH_PROMPT Press any key...\e[K"
         }
         local c='Less' && [[ $show_all -eq 0 ]] && c='All'
-        draw_shortcut_ml "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "m" "Mark" "'" "Bookmarks" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Grep" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
+        draw_shortcut_ml "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "i" "Rename" "dd" "Delete" "m" "Mark" "'" "Bookmarks" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Grep" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
         show_cursor
         get_key
         disable_line_wrapping
