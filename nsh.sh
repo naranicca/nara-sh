@@ -1812,11 +1812,11 @@ nsh() {
                 fi
                 if [[ $type == *ASCII* || $type == *UTF* || $type == *text* ]]; then
                     if [[ $1 == full ]]; then
-                        while IFS=$'\n' read line; do
+                        while IFS=$'\n' read -r line; do
                             list2+=("$line")
                         done < <(($NSH_TEXT_PREVIEW "${list[$focus]}" 2>/dev/null || cat "${list[$focus]}") | tr -d '\r' 2>/dev/null)
                     else
-                        while IFS=$'\n' read line; do
+                        while IFS=$'\n' read -r line; do
                             list2+=("$line")
                         done < <(($NSH_TEXT_PREVIEW "${list[$focus]}" 2>/dev/null || cat "${list[$focus]}") | head -n "$max_lines" | tr -d '\r' 2>/dev/null)
                     fi
