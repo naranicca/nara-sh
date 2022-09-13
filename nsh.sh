@@ -1559,6 +1559,12 @@ nsh() {
     }
     NSH_CURSORCH=$'\007'
     syntax_highlight() {
+        if [[ $# -eq 0 ]]; then
+            while IFS= read -r line; do
+                syntax_highlight "$line"; echo
+            done
+            return
+        fi
         local str="$@"
         local out=
         local prefix postfix
@@ -1618,7 +1624,7 @@ nsh() {
             out+="$prefix$c$word"$'\e[0m'"$postfix"
             [[ -n $wordbak ]] && word="$wordbak"
             ((word_idx++))
-            [[ $postfix == [\;\|] || $word == [\;\|\&]+ ]] && word_idx=0
+            [[ $postfix == [\;\|] || $word =~ [\;\|\&]+ ]] && word_idx=0
         done
         printf '\e[0m%s\e[0m\e[K' "$out"
         [[ $postfix == *\  ]] && word= || ((word_idx--))
@@ -1825,11 +1831,11 @@ nsh() {
                     if [[ $1 == full ]]; then
                         while IFS=$'\n' read -r line; do
                             list2+=("$line")
-                        done < <(($NSH_TEXT_PREVIEW "${list[$focus]}" 2>/dev/null || cat "${list[$focus]}") | tr -d '\r' 2>/dev/null)
+                        done < <(($NSH_TEXT_PREVIEW "${list[$focus]}" 2>/dev/null || cat "${list[$focus]}") | tr -d '\r' 2>/dev/null | sed 's/\x1b\[[0-9;=?]\+[JKh]//g')
                     else
                         while IFS=$'\n' read -r line; do
                             list2+=("$line")
-                        done < <(($NSH_TEXT_PREVIEW "${list[$focus]}" 2>/dev/null || cat "${list[$focus]}") | head -n "$max_lines" | tr -d '\r' 2>/dev/null)
+                        done < <(($NSH_TEXT_PREVIEW "${list[$focus]}" 2>/dev/null || cat "${list[$focus]}") | head -n "$max_lines" | tr -d '\r' 2>/dev/null | sed 's/\x1b\[[0-9;=?]\+[JKh]//g')
                     fi
                 else
                     list2+=("$type")
@@ -3262,7 +3268,7 @@ nsh() {
                             line="${line%)*}"
                             #usage+=("$line")
                             usage+=("$(format_argparse $line)")
-                        done < <(grep add_argument "$fname" 2>/dev/null | tr -d '\r' 2>/dev/null | sed -e "s/\('\|\"\)//g" -e "s/.*add_argument//")
+                        done < <(grep add_argument "$fname" 2>/dev/null | tr -d '\r' 2>/dev/null | sed -e "s/\('\|\"\)//g" -e "s/.*add_argument.*(//")
                         local _t="Usage: python $fname"
                         for i in "${usage[@]}"; do
                             [[ $i == -* || "$i" == \ \ \ \ --* ]] && _t="$_t [option]..." && break
@@ -3306,6 +3312,8 @@ nsh() {
             [[ "$STRING" =~ ^[\.]+$ ]] && STRING="${STRING#?}" && STRING="${STRING//./../}"
             [[ -d "$STRING" ]] && STRING="cd $STRING"
             [[ $STRING == cd\ * ]] && STRING="$STRING && ls $LS_COLOR_PARAM && pwd >~/.cache/nsh/lastdir"
+            [[ $STRING == git\ checkout\ * && $(get_num_words $STRING) -eq 3 && $STRING == *\ origin/* ]] && STRING="git checkout ${STRING##*origin/}"
+            [[ $STRING == git\ branch\ -d\ * && $(get_num_words $STRING) -eq 4 ]] && STRING="${STRING##* }" && if [[ $STRING == origin/* ]]; then STRING="git push origin --delete ${STRING#*origin/}"; echo -ne "$NSH_PROMPT This will delete a branch REMOTELY. Do you want to continue (Y/n)? "; get_key KEY; [[ $KEY != Y && $KEY != y ]] && return; echo $KEY; echo -e "$NSH_PROMPT $STRING"; else STRING="git branch -d $STRING"; fi
             if [[ $STRING == git\ branch ]]; then
                 local branch="$(git_branch | menu --searchable --popup --footer "+ $(draw_shortcut ENTER Checkout d Delete \/ Search z Zoom)" --key d 'echo "delete $1"')"
                 if [[ -n "$branch" ]]; then
@@ -3656,6 +3664,7 @@ nsh() {
                                             $'\e')
                                                 c_cand=-1
                                                 show_cand
+                                                NEXT_KEY=
                                                 break
                                                 ;;
                                             $'\177'|$'\b')
@@ -3690,6 +3699,7 @@ nsh() {
                                                 c_cand=0
                                                 show_cand
                                                 hide_cursor
+                                                NEXT_KEY=
                                                 ;;
                                             'j'|$'\e[B')
                                                 if [ $c_cand -lt $((num_cand-1)) ]; then
@@ -4021,7 +4031,7 @@ nsh() {
                             ;;
                         r|rebase|'move this branch to another')
                             NEXT_KEY=$'\t'
-                            subshell 'git rebase '
+                            subshell 'git rebase -i '
                             ;;
                         'delete a branch')
                             NEXT_KEY=$'\t'
