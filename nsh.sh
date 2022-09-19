@@ -2241,7 +2241,8 @@ nsh() {
             printf "%s" "${p:1:10}"
         }
         while true; do
-            [[ $side_info_idx -ge ${#list[@]} || $(($(get_timestamp)-tbeg)) -ge 1000 ]] && break
+            [[ $side_info_idx -ge ${#list[@]} ]] && break
+            [[ $((side_info_idx%10)) -eq 9 && $(($(get_timestamp)-tbeg)) -ge 1000 ]] && break
 
             local f="${list[$side_info_idx]}"
             local size=
@@ -3306,6 +3307,22 @@ nsh() {
                 fill_cand
             fi
         }
+        select_all() {
+            [[ ${#cand[@]} -eq 0 ]] && return
+            local pre="${STRING:0:$cursor}" && pre="${pre%$word}"
+            local post="${STRING:$cursor}"
+            for c in "${cand[@]}"; do
+                [[ $c == \>* ]] && continue
+                pre="$pre$c "
+            done
+            STRING="$pre$post"
+            cursor="${#pre}"
+            word=
+            print_prompt
+            cand_scroll=0
+            c_cand=-1
+            fill_cand
+        }
         nsheval() {
             [[ $# -gt 0 ]] && STRING="$@"
             [[ "$STRING" == \~ ]] && STRING="cd ~"
@@ -3313,19 +3330,17 @@ nsh() {
             [[ -d "$STRING" ]] && STRING="cd $STRING"
             [[ $STRING == cd\ * ]] && STRING="$STRING && ls $LS_COLOR_PARAM && pwd >~/.cache/nsh/lastdir"
             [[ $STRING == git\ checkout\ * && $(get_num_words $STRING) -eq 3 && $STRING == *\ origin/* ]] && STRING="git checkout ${STRING##*origin/}"
-            [[ $STRING == git\ branch\ -d\ * && $(get_num_words $STRING) -eq 4 ]] && STRING="${STRING##* }" && if [[ $STRING == origin/* ]]; then STRING="git push origin --delete ${STRING#*origin/}"; echo -ne "$NSH_PROMPT This will delete a branch REMOTELY. Do you want to continue (Y/n)? "; get_key KEY; [[ $KEY != Y && $KEY != y ]] && return; echo $KEY; echo -e "$NSH_PROMPT $STRING"; else STRING="git branch -d $STRING"; fi
             if [[ $STRING == git\ branch ]]; then
                 local branch="$(git_branch | menu --searchable --popup --footer "+ $(draw_shortcut ENTER Checkout d Delete \/ Search z Zoom)" --key d 'echo "delete $1"')"
-                if [[ -n "$branch" ]]; then
-                    if [[ $branch == delete\ * ]]; then
-                        branch="${branch#* }"
-                        git branch -D "$branch"
-                    else
-                        git checkout "$branch"
-                    fi
+                if [[ $branch == delete\ * ]]; then
+                    STRING="git branch -d ${branch#* }"
+                else
+                    [[ -n "$branch" ]] && git checkout "$branch"
+                    return
                 fi
-                return
-            elif [[ $STRING == git\ rebase\ * && $(get_num_words $STRING) -eq 3 ]]; then
+            fi
+            [[ $STRING == git\ branch\ -d\ * && $(get_num_words $STRING) -eq 4 ]] && STRING="${STRING##* }" && if [[ $STRING == origin/* ]]; then STRING="git push origin --delete ${STRING#*origin/}"; echo -ne "$NSH_PROMPT This will delete a branch REMOTELY. Do you want to continue (Y/n)? "; get_key KEY; [[ $KEY != Y && $KEY != y ]] && return; echo $KEY; echo -e "$NSH_PROMPT $STRING"; else STRING="git branch -d $STRING"; fi
+            if [[ $STRING == git\ rebase\ * && $(get_num_words $STRING) -eq 3 ]]; then
                 local dst="${STRING## *}"
                 if [[ -n "$(git branch --list "$dst")" || -n "$(git branch -r | sed 's/$/ /' | grep " $dst ")" ]]; then
                     local p="$(git_parent)"
@@ -3496,6 +3511,9 @@ nsh() {
                     $'\e[11~'|$'\eOP') # F1
                         update_usage help
                         cand=() && show_cand
+                        ;;
+                    $'\01')
+                        select_all
                         ;;
                     $'\04')
                         if [[ -z "$STRING" ]]; then
@@ -3671,6 +3689,11 @@ nsh() {
                                                 c_cand=-1
                                                 show_cand
                                                 NEXT_KEY=$'\b'
+                                                break
+                                                ;;
+                                            $'\01')
+                                                select_all
+                                                NEXT_KEY=
                                                 break
                                                 ;;
                                             $'\n'|'l'|' ')
@@ -4109,7 +4132,7 @@ nsh() {
                             if [ -n "$git_stat" ]; then
                                 move_cursor 2
                                 local f="$(printf '%*s' $COLUMNS ' ')" && f="${f//\ /-}"
-                                i=$(menu "Key   Command" 'p    pull' 'h    push' '     create a branch' '     list branches' 'k    switch branch' 'm    merge a branch' 'r    move this branch to another' '     delete a branch' 'f    fetch' '     add a remote repository' 'c    commit' 'u    revert' 'e    edit commits' 'a    add files' 'd    delete files' 'l    log' 'b    blame' 's    show modified files only' '     fix conflicts' 'i    info' -h $max_lines --popup --header - --footer $f)
+                                i=$(menu "Key   Command" 'p    pull' 'h    push' '     create a branch' '     delete a branch' '     list branches' 'k    switch branch' 'm    merge a branch' 'r    move this branch to another' 'f    fetch' '     add a remote repository' 'c    commit' 'u    revert' 'e    edit commits' 'a    add files' 'd    delete files' 'l    log' 'b    blame' 's    show modified files only' '     fix conflicts' 'i    info' -h $max_lines --popup --header - --footer $f)
                                 disable_line_wrapping
                                 hide_cursor
                                 [[ -n "$i" ]] && git_op "${i#?????}" || redraw
