@@ -195,10 +195,12 @@ nshcp() {
                 local cmp= && $(command diff --brief "$s" "$d" &>/dev/null) && cmp=', same file'
                 #echo -e "$NSH_PROMPT "$'\e[4m'"${d/$HOME\//$tilde\/}"$'\e[0m'" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)\e[K"
                 echo -e "$NSH_PROMPT "$(print_filename "$d")" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)\e[K"
-                local ans="$(menu --popup 'Overwrite' 'Overwrite all' 'Skip' 'Skip all' 'Rename' 'Cancel' --key o 'echo Overwrite' --key s 'echo Skip' --key r 'echo Rename' --footer "$(draw_shortcut o Overwrite s Skip r Rename)" --cursor $'\e[31;100m>' --sel-color '0;1;100')"
                 while true; do
+                    local ans="$(menu --popup 'Overwrite' 'Overwrite all' 'Skip' 'Skip all' 'Rename' 'Cancel' --key o 'echo Overwrite' --key s 'echo Skip' --key r 'echo Rename' --footer "$(draw_shortcut o Overwrite s Skip r Rename)" --cursor $'\e[31;100m>' --sel-color '0;1;100')"
                     case "$ans" in
-                        'Overwrite') ;;
+                        'Overwrite')
+                            echo "    $s --> $(print_filename "$d")"
+                            ;;
                         'Overwrite all') overwrite_all=yes;;
                         #'Skip') return;;
                         'Skip all') skip_all=yes && return;;
@@ -1338,7 +1340,7 @@ play2048() {
 # main function
 ############################################################################
 nsh() {
-    local version='0.1.20220613'
+    local version='0.1.20220921'
     local nsh_mode=
     local subprompt=
     local STRING=
@@ -2011,7 +2013,7 @@ nsh() {
             draw_help_line "Press $NSH_COLOR_SH1 v \e[0m to edit the file using the default editor. To check the default editor, see NSH_DEFAULT_EDITOR in config.\e[K"
             draw_help_line "See the table of important keyboard shortcuts below:\e[K"
             local c='Less' && [[ $show_all -eq 0 ]] && c='All'
-            draw_shortcut_ml "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "i" "Rename" "I" "Touch" "dd" "Delete" "m" "Mark" "'" "Bookmarks" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Grep" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
+            draw_shortcut_ml "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "i" "Rename" "I" "Touch" "dd" "Delete" "m" "Mark" "'" "Bookmarks" 'L' "Ln" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Grep" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
             show_cursor
             get_key
             disable_line_wrapping
@@ -2424,16 +2426,17 @@ nsh() {
         local yfocus
         local yy
         local ylast_item
-        local op='cp'
-        [[ $1 == 'mv' ]] && op='mv'
+        local op="$1"
         yopen() {
             path="$(command cd "$1/"; pwd)"
             [[ $path == / ]] && path=
             move_cursor "1;$((list_width+1))"
-            if [[ $op == 'mv' ]]; then
-                printf '\e[30;42m\e[K| Move to: %s\e[0m' "${path/#$HOME\//$tilde/}"
+            if [[ $op == cp ]]; then
+                printf '\e[30;42m\e[K| Copy to: %s\e[0m' "$(print_filename "$path")"
+            elif [[ $op == mv ]]; then
+                printf '\e[30;42m\e[K| Move to: %s\e[0m' "$(print_filename "$path")"
             else
-                printf '\e[30;42m\e[K| Copy to: %s\e[0m' "${path/#$HOME\//$tilde/}"
+                printf '\e[30;42m\e[K| Symbolic link\e[0m'
             fi
             dirs=()
             files=()
@@ -2471,6 +2474,7 @@ nsh() {
         ydraw() {
             local d=${#dirs[@]}
             local w=$((COLUMNS-list_width))
+            [[ $((yy+max_lines)) -lt $yfocus ]] && yy=$((yfocus-max_lines+1))
             for ((i=0; i<$max_lines; i++)); do
                 move_cursor "$((i+2));$((list_width+3))"
                 if [ $((yy+i)) -lt $listy_size ]; then
@@ -2484,14 +2488,16 @@ nsh() {
         }
         draw_shortcut_yank() {
             move_cursor $LINES
-            if [[ $op == 'mv' ]]; then
-                draw_shortcut "P" "Paste " "D" "Delete" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+            if [[ $op == cp ]]; then
+                draw_shortcut "p" "Paste " "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+            elif [[ $op == mv ]]; then
+                draw_shortcut "p" "Paste " "D" "Delete" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             else
-                draw_shortcut "P" "Paste " "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+                draw_shortcut "L" "Make Link" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             fi
         }
 
-        if [ ${#selected[@]} -eq 0 ]; then
+        if [[ ${#selected[@]} -eq 0 && $op != ln ]]; then
             if [[ ${list[$focus]} != ".." ]]; then
                 selected[$focus]="$PWD/${list[$focus]}"
             else
@@ -2636,31 +2642,42 @@ nsh() {
                     fi
                     draw_shortcut_yank
                     ;;
-                'p')
-                    if [[ $op == 'mv' ]]; then
-                        nshmv "${selected[@]/#$PWD\//}" "$path"
-                    else
-                        nshcp "${selected[@]/#$PWD\//}" "$path"
-                    fi
-                    #command cd "$path"
-                    last_item="$path/${list[$focus]}"
-                    update
-                    return
-                    ;;
-                'd')
-                    if [[ $op == 'mv' ]]; then
-                        if [[ ${#selected[@]} -eq 1 ]]; then
-                            dialog "Delete ${selected[@]/#$HOME/$tilde}?" " Yes " " No "
+                p)
+                    if [[ $op == cp || $op == mv ]]; then
+                        if [[ $op == 'mv' ]]; then
+                            nshmv "${selected[@]/#$PWD\//}" "$path"
                         else
-                            dialog "Delete ${#selected[@]} files?" " Yes " " No "
+                            nshcp "${selected[@]/#$PWD\//}" "$path"
                         fi
-                        [[ $? -eq 0 ]] && for f in "${selected[@]}"; do
-                            rm -rf "$f"
-                        done
+                        #command cd "$path"
+                        last_item="$path/${list[$focus]}"
+                        update
+                        return
                     fi
-                    update
-                    return
                     ;;
+                d)
+                    if [[ $op == cp || $op == mv ]]; then
+                        if [[ $op == 'mv' ]]; then
+                            if [[ ${#selected[@]} -eq 1 ]]; then
+                                dialog "Delete ${selected[@]/#$HOME/$tilde}?" " Yes " " No "
+                            else
+                                dialog "Delete ${#selected[@]} files?" " Yes " " No "
+                            fi
+                            [[ $? -eq 0 ]] && for f in "${selected[@]}"; do
+                                rm -rf "$f"
+                            done
+                        fi
+                        update
+                        return
+                    fi
+                    ;;
+                L)
+                    if [[ $op == ln ]]; then
+                        last_item="$PWD/${ylist[$yfocus]%/}"
+                        ln -s "$path/${ylist[$yfocus]}" "${last_item##*/}"
+                        update
+                        return
+                    fi
             esac
         done
         update
@@ -3850,7 +3867,7 @@ nsh() {
                 echo "${bookmarks[$i]%% *}   ${val/#$HOME\//$tilde\/}"
             done; for ((i=$((${#visited[@]}-1)); i>=0; i--)); do
                 echo "    ${visited[$i]}"
-            done) | menu -h $max_lines --popup --header 'Key  Address' --footer $f --return-idx --searchable --key v 'echo edit')"
+            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut v Edit)" --return-idx --searchable --key v 'echo edit')"
             if [[ $opened == yes ]]; then
                 disable_line_wrapping >&2
                 hide_cursor >&2
@@ -4207,10 +4224,13 @@ nsh() {
                     fi
                     ;;
                 'y'|$'\e[15~') # cp
-                    yank
+                    yank cp
                     ;;
                 'd'|$'\e[17~')
-                    yank 'mv'
+                    yank mv
+                    ;;
+                L)
+                    yank ln
                     ;;
                 $'\e[12~'|$'\eOQ'|'i') # F2
                     f="${list[$focus]}"
@@ -4558,8 +4578,15 @@ nsh() {
                     ;;
                 "'"|'"')
                     local addr="$(select_bookmark "$KEY")"
-                    [[ "$addr" == edit ]] && subshell --secret "$NSH_DEFAULT_EDITOR ~/.config/nsh/bookmarks" && load_bookmarks && addr=
-                    [[ -n "$addr" ]] && open_file "$addr" || redraw
+                    if [[ "$addr" == edit ]]; then
+                        close_pane
+                        "$NSH_DEFAULT_EDITOR" ~/.config/nsh/bookmarks
+                        load_bookmarks
+                        open_pane
+                        update
+                    elif [[ -n "$addr" ]]; then
+                        open_file "$addr" || redraw
+                    fi
                     ;;
                 'q')
                     break
