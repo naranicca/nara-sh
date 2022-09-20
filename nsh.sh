@@ -195,10 +195,12 @@ nshcp() {
                 local cmp= && $(command diff --brief "$s" "$d" &>/dev/null) && cmp=', same file'
                 #echo -e "$NSH_PROMPT "$'\e[4m'"${d/$HOME\//$tilde\/}"$'\e[0m'" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)\e[K"
                 echo -e "$NSH_PROMPT "$(print_filename "$d")" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)\e[K"
-                local ans="$(menu --popup 'Overwrite' 'Overwrite all' 'Skip' 'Skip all' 'Rename' 'Cancel' --key o 'echo Overwrite' --key s 'echo Skip' --key r 'echo Rename' --footer "$(draw_shortcut o Overwrite s Skip r Rename)" --cursor $'\e[31;100m>' --sel-color '0;1;100')"
                 while true; do
+                    local ans="$(menu --popup 'Overwrite' 'Overwrite all' 'Skip' 'Skip all' 'Rename' 'Cancel' --key o 'echo Overwrite' --key s 'echo Skip' --key r 'echo Rename' --footer "$(draw_shortcut o Overwrite s Skip r Rename)" --cursor $'\e[31;100m>' --sel-color '0;1;100')"
                     case "$ans" in
-                        'Overwrite') ;;
+                        'Overwrite')
+                            echo "    $s --> $(print_filename "$d")"
+                            ;;
                         'Overwrite all') overwrite_all=yes;;
                         #'Skip') return;;
                         'Skip all') skip_all=yes && return;;
@@ -4558,8 +4560,15 @@ nsh() {
                     ;;
                 "'"|'"')
                     local addr="$(select_bookmark "$KEY")"
-                    [[ "$addr" == edit ]] && subshell --secret "$NSH_DEFAULT_EDITOR ~/.config/nsh/bookmarks" && load_bookmarks && addr=
-                    [[ -n "$addr" ]] && open_file "$addr" || redraw
+                    if [[ "$addr" == edit ]]; then
+                        close_pane
+                        "$NSH_DEFAULT_EDITOR" ~/.config/nsh/bookmarks
+                        load_bookmarks
+                        open_pane
+                        update
+                    elif [[ -n "$addr" ]]; then
+                        open_file "$addr" || redraw
+                    fi
                     ;;
                 'q')
                     break
