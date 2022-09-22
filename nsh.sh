@@ -1066,13 +1066,13 @@ git_fix_conflicts() {
     [[ $# -gt 0 ]] && echo "$@"
     while true; do
         idx="$(for f in "${files[@]}"; do
-            [[ $(grep -c '<<< HEAD' "$f" 2>/dev/null) -gt 0 ]] && echo "@@$f" || echo "$f"
+            [[ $(grep -c '^<\+ HEAD' "$f" 2>/dev/null) -gt 0 ]] && echo "@@$f" || echo "$f"
         done | menu --popup --sel-color 4 --cursor $'\e[31;100m>' --sel-color '0;1;100' --return-idx --accent "@@" 31 32)"
         [[ -z "$idx" ]] && break
         $NSH_DEFAULT_EDITOR "${files[$idx]}"
         local cont=false
         for f in "${files[@]}"; do
-            [[ $(grep -c '<<< HEAD' "$f" 2>/dev/null) -gt 0 ]] && cont=true && break
+            [[ $(grep -c '^<\+ HEAD' "$f" 2>/dev/null) -gt 0 ]] && cont=true && break
         done
         if [[ $cont == false ]]; then
             echo -n 'All conflicts were fixed. Apply the changes to continue? (Y/n) ' && get_key KEY
@@ -2138,11 +2138,11 @@ nsh() {
         fi
     }
     open_file() {
+        local fname="${1/#$tilde\//$HOME/}"
         if [ -d "$1" ]; then
             command cd "$1"
             update
         else
-            local fname="$1"
             eval "[[ -e $fname ]] && echo" &>/dev/null || fname="\"$fname\""
             if [[ "$fname" == *.py ]]; then
                 subshell "python $fname "
@@ -3867,19 +3867,15 @@ nsh() {
                 echo "${bookmarks[$i]%% *}   ${val/#$HOME\//$tilde\/}"
             done; for ((i=$((${#visited[@]}-1)); i>=0; i--)); do
                 echo "    ${visited[$i]}"
-            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut v Edit)" --return-idx --searchable --key v 'echo edit')"
+            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut v Edit)" --return-idx --searchable --key v 'echo \!edit')"
             if [[ $opened == yes ]]; then
                 disable_line_wrapping >&2
                 hide_cursor >&2
             fi
-            if [[ $i == edit ]]; then
+            if [[ $i == \!edit ]]; then
                 echo "$i"
             elif [[ -n "$i" ]]; then
-                if [ $i -lt ${#bookmarks[@]} ]; then
-                    echo "${bookmarks[$i]#* }"
-                else
-                    echo "${visited[$((${#visited[@]}-1-i+${#bookmarks[@]}))]/#$tilde\//$HOME/}"
-                fi
+                echo "${i#?}" | sed 's/^[ ]\*//'
             fi
         else
             for ((i=0; i<${#bookmarks[@]}; i++)); do
@@ -4578,7 +4574,7 @@ nsh() {
                     ;;
                 "'"|'"')
                     local addr="$(select_bookmark "$KEY")"
-                    if [[ "$addr" == edit ]]; then
+                    if [[ "$addr" == \!edit ]]; then
                         close_pane
                         "$NSH_DEFAULT_EDITOR" ~/.config/nsh/bookmarks
                         load_bookmarks
