@@ -1340,7 +1340,7 @@ play2048() {
 # main function
 ############################################################################
 nsh() {
-    local version='0.1.20220613'
+    local version='0.1.20220921'
     local nsh_mode=
     local subprompt=
     local STRING=
@@ -2474,6 +2474,7 @@ nsh() {
         ydraw() {
             local d=${#dirs[@]}
             local w=$((COLUMNS-list_width))
+            [[ $((yy+max_lines)) -lt $yfocus ]] && yy=$((yfocus-max_lines+1))
             for ((i=0; i<$max_lines; i++)); do
                 move_cursor "$((i+2));$((list_width+3))"
                 if [ $((yy+i)) -lt $listy_size ]; then
