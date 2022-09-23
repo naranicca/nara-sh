@@ -1346,6 +1346,7 @@ nsh() {
     local STRING=
     local STRING_SUGGEST=
     local PRESTRING=
+    local STRINGBUF=
     local selected=()
     local tilde='~'
     local dirs
@@ -1492,7 +1493,9 @@ nsh() {
         hide_cursor
 
         # ps
-        if [[ -z $subprompt ]]; then
+        if [[ -n $STRINGBUF ]]; then
+            subprompt="$NSH_PROMPT"
+        elif [[ -z $subprompt ]]; then
             local prefix=
             [[ -n $nsh_mode ]] && prefix=$'\e[37;45m'"[$nsh_mode]"
             if [[ -n "$NSH_PROMPT_PREFIX" ]]; then
@@ -3421,39 +3424,23 @@ nsh() {
                 if [[ $STRING == *\ \& ]]; then
                     set -m
                 else
-                    set +m # ctrl-z doesn't work
+                    set +m # ctrl-z does not work
                 fi
-                eval "$STRING"$'\n'"$(echo NSH_EXIT_CODE=\$?)"
+                [[ -n $STRINGBUF ]] && STRING="$STRINGBUF"$'\n'"$STRING"
+                eval "$STRING 2>&1"$'\n'"$(echo NSH_EXIT_CODE=\$?)" 2>/dev/null
                 if [[ $? -ne 0 || -z "$__temp" ]]; then
-                    __string= ; print_prompt "$prefix"; hide_usage; echo
-                    __string="$__temp"
-                    [[ -n "$__string" ]] && echo -e "$NSH_PROMPT $(print_command $__string)"
-                    while true; do
-                        echo -en "$NSH_PROMPT "
-                        read_string --highlight ; echo
-                        if [[ -z "$STRING" ]]; then
-                            __manerr() {
-                                while read line; do
-                                    line="${line#$0: eval: line }"
-                                    echo "${line#* }"
-                                done
-                            }
-                            eval "$__string" 2> >(__manerr)
-                            NSH_EXIT_CODE=$?
-                            break
-                        fi
-                        __string="$__string"$'\n'"$STRING"
-                        tbeg=$(get_timestamp)
-                        eval "$__string 2>&1"$'\n'"$(echo NSH_EXIT_CODE=\$?)" 2>/dev/null
-                        if [[ $? -eq 0 ]]; then
-                            if [[ $secret -eq 0 ]]; then
-                                local tmp=$'\n'
-                                history[$((${#history[@]}-1))]="${__string//$tmp/ ; }"
-                            fi
-                            break
-                        fi
-                    done
+                    if [[ -z $STRINGBUF ]]; then
+                        move_cursor $row0 && echo -ne "$subprompt"
+                        hide_usage
+                        echo
+                        echo -ne "$NSH_PROMPT"
+                        syntax_highlight "$STRING"
+                        echo
+                    fi
+                    STRINGBUF="$STRING"
+                    return
                 fi
+                STRINGBUF=
                 local report=
                 if [[ $NSH_EXIT_CODE -ne 0 ]]; then
                     if [[ $STRING == git\ pull\ * && $STRING != *--force* ]]; then
@@ -3533,6 +3520,12 @@ nsh() {
                         select_all
                         ;;
                     $'\04')
+                        if [[ -n $STRINGBUF ]]; then
+                            STRINGBUF=
+                            STRING=
+                            subprompt=
+                            echo '^C'
+                            break
                         if [[ -z "$STRING" ]]; then
                             STRING='exit'
                             NEXT_KEY=$'\n'
