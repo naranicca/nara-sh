@@ -1494,7 +1494,7 @@ nsh() {
 
         # ps
         if [[ -n $STRINGBUF ]]; then
-            subprompt="$NSH_PROMPT"
+            subprompt="$NSH_PROMPT "
         elif [[ -z $subprompt ]]; then
             local prefix=
             [[ -n $nsh_mode ]] && prefix=$'\e[37;45m'"[$nsh_mode]"
@@ -3433,7 +3433,7 @@ nsh() {
                         move_cursor $row0 && echo -ne "$subprompt"
                         hide_usage
                         echo
-                        echo -ne "$NSH_PROMPT"
+                        echo -ne "$NSH_PROMPT "
                         syntax_highlight "$STRING"
                         echo
                     fi
@@ -3526,7 +3526,7 @@ nsh() {
                             subprompt=
                             echo '^C'
                             break
-                        if [[ -z "$STRING" ]]; then
+                        elif [[ -z "$STRING" ]]; then
                             STRING='exit'
                             NEXT_KEY=$'\n'
                         fi
