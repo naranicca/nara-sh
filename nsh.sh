@@ -1118,7 +1118,7 @@ git_log() {
                         fi
                     fi
                 fi
-            done < <(git log --follow "$@" 2>/dev/null)
+            done < <(eval "git log --follow "$@" 2>/dev/null")
         }
         commit="$(gather_commit "$@" | menu --header ' CommitID     Log' --footer "+ $(draw_shortcut TAB Preview ENTER Checkout \/ Search z Zoom)" --popup --sel-color 7 --preview git_commit_preview --searchable $mopt)"
         commit="${commit%% *}"
@@ -2142,8 +2142,8 @@ nsh() {
     }
     open_file() {
         local fname="${1/#$tilde\//$HOME/}"
-        if [ -d "$1" ]; then
-            command cd "$1"
+        if [ -d "$fname" ]; then
+            command cd "$fname"
             update
         else
             eval "[[ -e $fname ]] && echo" &>/dev/null || fname="\"$fname\""
@@ -3860,7 +3860,7 @@ nsh() {
                 echo "${bookmarks[$i]%% *}   ${val/#$HOME\//$tilde\/}"
             done; for ((i=$((${#visited[@]}-1)); i>=0; i--)); do
                 echo "    ${visited[$i]}"
-            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut v Edit)" --return-idx --searchable --key v 'echo \!edit')"
+            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut v Edit)" --searchable --key v 'echo \!edit')"
             if [[ $opened == yes ]]; then
                 disable_line_wrapping >&2
                 hide_cursor >&2
@@ -3868,7 +3868,7 @@ nsh() {
             if [[ $i == \!edit ]]; then
                 echo "$i"
             elif [[ -n "$i" ]]; then
-                echo "${i#?}" | sed 's/^[ ]\*//'
+                echo "${i#?}" | sed 's/^\ *//'
             fi
         else
             for ((i=0; i<${#bookmarks[@]}; i++)); do
@@ -4575,6 +4575,8 @@ nsh() {
                         update
                     elif [[ -n "$addr" ]]; then
                         open_file "$addr" || redraw
+                    else
+                        redraw
                     fi
                     ;;
                 'q')
