@@ -243,8 +243,8 @@ nshcp() {
                 if [[ -d "$tmp" && $op == *cp ]]; then
                     for i in {1..99999}; do
                         if [[ ! -d "${tmp}_($i)" ]]; then
-                            echo -e "$NSH_PROMPT "$(print_filename "$tmp")" already exists. changed name --> $NSH_COLOR_DIR${tmp/#$HOME/$tilde}_($i)\e[0m\e[K"
-                            eval "$op -r \"$1\" \"${tmp}_($i)\""
+                            echo -e "$NSH_PROMPT "$(print_filename "$tmp")" already exists. changed name --> $NSH_COLOR_DIR${tmp/#$HOME/$tilde}($i)\e[0m\e[K"
+                            eval "$op -r \"$1\" \"${tmp}($i)\""
                             break
                         fi
                     done
@@ -1066,13 +1066,13 @@ git_fix_conflicts() {
     [[ $# -gt 0 ]] && echo "$@"
     while true; do
         idx="$(for f in "${files[@]}"; do
-            [[ $(grep -c '<<< HEAD' "$f" 2>/dev/null) -gt 0 ]] && echo "@@$f" || echo "$f"
+            [[ $(grep -c '^<\+ HEAD' "$f" 2>/dev/null) -gt 0 ]] && echo "@@$f" || echo "$f"
         done | menu --popup --sel-color 4 --cursor $'\e[31;100m>' --sel-color '0;1;100' --return-idx --accent "@@" 31 32)"
         [[ -z "$idx" ]] && break
         $NSH_DEFAULT_EDITOR "${files[$idx]}"
         local cont=false
         for f in "${files[@]}"; do
-            [[ $(grep -c '<<< HEAD' "$f" 2>/dev/null) -gt 0 ]] && cont=true && break
+            [[ $(grep -c '^<\+ HEAD' "$f" 2>/dev/null) -gt 0 ]] && cont=true && break
         done
         if [[ $cont == false ]]; then
             echo -n 'All conflicts were fixed. Apply the changes to continue? (Y/n) ' && get_key KEY
@@ -1118,7 +1118,7 @@ git_log() {
                         fi
                     fi
                 fi
-            done < <(git log --follow "$@" 2>/dev/null)
+            done < <(eval "git log --follow "$@" 2>/dev/null")
         }
         commit="$(gather_commit "$@" | menu --header ' CommitID     Log' --footer "+ $(draw_shortcut TAB Preview ENTER Checkout \/ Search z Zoom)" --popup --sel-color 7 --preview git_commit_preview --searchable $mopt)"
         commit="${commit%% *}"
@@ -1346,6 +1346,7 @@ nsh() {
     local STRING=
     local STRING_SUGGEST=
     local PRESTRING=
+    local STRINGBUF=
     local selected=()
     local tilde='~'
     local dirs
@@ -1492,7 +1493,9 @@ nsh() {
         hide_cursor
 
         # ps
-        if [[ -z $subprompt ]]; then
+        if [[ -n $STRINGBUF ]]; then
+            subprompt="$NSH_PROMPT "
+        elif [[ -z $subprompt ]]; then
             local prefix=
             [[ -n $nsh_mode ]] && prefix=$'\e[37;45m'"[$nsh_mode]"
             if [[ -n "$NSH_PROMPT_PREFIX" ]]; then
@@ -2102,7 +2105,11 @@ nsh() {
                 move_cursor "$y;$((x+w-bw))"
                 for ((i=0; i<${#btn[@]}; i++)); do
                     if [ $i -eq $bidx ]; then
-                        printf "\e[37;44m%s\e[0m" "[${btn[$i]}]"
+                        if [[ $1 == bold ]]; then
+                            printf "\e[30;44m%s\e[0m" "[${btn[$i]}]"
+                        else
+                            printf "\e[37;44m%s\e[0m" "[${btn[$i]}]"
+                        fi
                     else
                         printf "$color%s\e[0m" " ${btn[$i]} "
                     fi
@@ -2131,6 +2138,7 @@ nsh() {
                         draw_buttons
                         ;;
                     $'\n'|' ')
+                        draw_buttons bold
                         return $bidx
                         ;;
                 esac
@@ -2138,11 +2146,11 @@ nsh() {
         fi
     }
     open_file() {
-        if [ -d "$1" ]; then
-            command cd "$1"
+        local fname="${1/#$tilde\//$HOME/}"
+        if [ -d "$fname" ]; then
+            command cd "$fname"
             update
         else
-            local fname="$1"
             eval "[[ -e $fname ]] && echo" &>/dev/null || fname="\"$fname\""
             if [[ "$fname" == *.py ]]; then
                 subshell "python $fname "
@@ -3421,39 +3429,23 @@ nsh() {
                 if [[ $STRING == *\ \& ]]; then
                     set -m
                 else
-                    set +m # ctrl-z doesn't work
+                    set +m # ctrl-z does not work
                 fi
-                eval "$STRING"$'\n'"$(echo NSH_EXIT_CODE=\$?)"
+                [[ -n $STRINGBUF ]] && STRING="$STRINGBUF"$'\n'"$STRING"
+                eval "$STRING 2>&1"$'\n'"$(echo NSH_EXIT_CODE=\$?)" 2>/dev/null
                 if [[ $? -ne 0 || -z "$__temp" ]]; then
-                    __string= ; print_prompt "$prefix"; hide_usage; echo
-                    __string="$__temp"
-                    [[ -n "$__string" ]] && echo -e "$NSH_PROMPT $(print_command $__string)"
-                    while true; do
-                        echo -en "$NSH_PROMPT "
-                        read_string --highlight ; echo
-                        if [[ -z "$STRING" ]]; then
-                            __manerr() {
-                                while read line; do
-                                    line="${line#$0: eval: line }"
-                                    echo "${line#* }"
-                                done
-                            }
-                            eval "$__string" 2> >(__manerr)
-                            NSH_EXIT_CODE=$?
-                            break
-                        fi
-                        __string="$__string"$'\n'"$STRING"
-                        tbeg=$(get_timestamp)
-                        eval "$__string 2>&1"$'\n'"$(echo NSH_EXIT_CODE=\$?)" 2>/dev/null
-                        if [[ $? -eq 0 ]]; then
-                            if [[ $secret -eq 0 ]]; then
-                                local tmp=$'\n'
-                                history[$((${#history[@]}-1))]="${__string//$tmp/ ; }"
-                            fi
-                            break
-                        fi
-                    done
+                    if [[ -z $STRINGBUF ]]; then
+                        move_cursor $row0 && echo -ne "$subprompt"
+                        hide_usage
+                        echo
+                        echo -ne "$NSH_PROMPT "
+                        syntax_highlight "$STRING"
+                        echo
+                    fi
+                    STRINGBUF="$STRING"
+                    return
                 fi
+                STRINGBUF=
                 local report=
                 if [[ $NSH_EXIT_CODE -ne 0 ]]; then
                     if [[ $STRING == git\ pull\ * && $STRING != *--force* ]]; then
@@ -3533,7 +3525,13 @@ nsh() {
                         select_all
                         ;;
                     $'\04')
-                        if [[ -z "$STRING" ]]; then
+                        if [[ -n $STRINGBUF ]]; then
+                            STRINGBUF=
+                            STRING=
+                            subprompt=
+                            echo '^C'
+                            break
+                        elif [[ -z "$STRING" ]]; then
                             STRING='exit'
                             NEXT_KEY=$'\n'
                         fi
@@ -3867,19 +3865,15 @@ nsh() {
                 echo "${bookmarks[$i]%% *}   ${val/#$HOME\//$tilde\/}"
             done; for ((i=$((${#visited[@]}-1)); i>=0; i--)); do
                 echo "    ${visited[$i]}"
-            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut v Edit)" --return-idx --searchable --key v 'echo edit')"
+            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut v Edit)" --searchable --key v 'echo \!edit')"
             if [[ $opened == yes ]]; then
                 disable_line_wrapping >&2
                 hide_cursor >&2
             fi
-            if [[ $i == edit ]]; then
+            if [[ $i == \!edit ]]; then
                 echo "$i"
             elif [[ -n "$i" ]]; then
-                if [ $i -lt ${#bookmarks[@]} ]; then
-                    echo "${bookmarks[$i]#* }"
-                else
-                    echo "${visited[$((${#visited[@]}-1-i+${#bookmarks[@]}))]/#$tilde\//$HOME/}"
-                fi
+                echo "${i#?}" | sed 's/^\ *//'
             fi
         else
             for ((i=0; i<${#bookmarks[@]}; i++)); do
@@ -4575,10 +4569,11 @@ nsh() {
                     else
                         dialog "This KEY cannot be used for bookmarks"
                     fi
+                    redraw
                     ;;
                 "'"|'"')
                     local addr="$(select_bookmark "$KEY")"
-                    if [[ "$addr" == edit ]]; then
+                    if [[ "$addr" == \!edit ]]; then
                         close_pane
                         "$NSH_DEFAULT_EDITOR" ~/.config/nsh/bookmarks
                         load_bookmarks
@@ -4586,6 +4581,8 @@ nsh() {
                         update
                     elif [[ -n "$addr" ]]; then
                         open_file "$addr" || redraw
+                    else
+                        redraw
                     fi
                     ;;
                 'q')
