@@ -243,8 +243,8 @@ nshcp() {
                 if [[ -d "$tmp" && $op == *cp ]]; then
                     for i in {1..99999}; do
                         if [[ ! -d "${tmp}_($i)" ]]; then
-                            echo -e "$NSH_PROMPT "$(print_filename "$tmp")" already exists. changed name --> $NSH_COLOR_DIR${tmp/#$HOME/$tilde}_($i)\e[0m\e[K"
-                            eval "$op -r \"$1\" \"${tmp}_($i)\""
+                            echo -e "$NSH_PROMPT "$(print_filename "$tmp")" already exists. changed name --> $NSH_COLOR_DIR${tmp/#$HOME/$tilde}($i)\e[0m\e[K"
+                            eval "$op -r \"$1\" \"${tmp}($i)\""
                             break
                         fi
                     done
@@ -2105,7 +2105,11 @@ nsh() {
                 move_cursor "$y;$((x+w-bw))"
                 for ((i=0; i<${#btn[@]}; i++)); do
                     if [ $i -eq $bidx ]; then
-                        printf "\e[37;44m%s\e[0m" "[${btn[$i]}]"
+                        if [[ $1 == bold ]]; then
+                            printf "\e[30;44m%s\e[0m" "[${btn[$i]}]"
+                        else
+                            printf "\e[37;44m%s\e[0m" "[${btn[$i]}]"
+                        fi
                     else
                         printf "$color%s\e[0m" " ${btn[$i]} "
                     fi
@@ -2134,6 +2138,7 @@ nsh() {
                         draw_buttons
                         ;;
                     $'\n'|' ')
+                        draw_buttons bold
                         return $bidx
                         ;;
                 esac
@@ -4564,6 +4569,7 @@ nsh() {
                     else
                         dialog "This KEY cannot be used for bookmarks"
                     fi
+                    redraw
                     ;;
                 "'"|'"')
                     local addr="$(select_bookmark "$KEY")"
