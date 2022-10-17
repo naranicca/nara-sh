@@ -2250,6 +2250,8 @@ nsh() {
             local p="$(ls -ld "$1")" && p="${p%% *}"
             printf "%s" "${p:1:10}"
         }
+        [[ -z $NEXT_KEY ]] && get_key -t $get_key_eps NEXT_KEY
+        [[ -n $NEXT_KEY ]] && return
         while true; do
             [[ $side_info_idx -ge ${#list[@]} ]] && break
             [[ $((side_info_idx%10)) -eq 9 && $(($(get_timestamp)-tbeg)) -ge 1000 ]] && break
