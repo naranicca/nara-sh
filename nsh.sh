@@ -4055,10 +4055,10 @@ nsh() {
                     git_op() {
                         case "$1" in
                         p|pull)
-                            subshell "git pull origin $(git_branch_name)"
+                            dialog "git: pulll from $(git_branch_name)?" && subshell "git pull origin $(git_branch_name)"
                             ;;
                         h|push)
-                            subshell "git push origin $(git_branch_name)"
+                            dialog "git: push to $(git_branch_name)?" && subshell "git push origin $(git_branch_name)"
                             ;;
                         'create a branch')
                             subshell 'git checkout -b '
@@ -4092,7 +4092,7 @@ nsh() {
                             subshell "git commit$sel"
                             ;;
                         u|revert)
-                            if [ $git_stat_c -eq 101 ]; then
+                            dialog "git: revert changes?" && if [ $git_stat_c -eq 101 ]; then
                                 subshell "git checkout --$sel"
                             else
                                 git_revert() {
@@ -4120,10 +4120,10 @@ nsh() {
                             fi
                             ;;
                         a|add|'add files')
-                            subshell "git add$sel"
+                            dialog "add files?\n$sel" && subshell "git add$sel"
                             ;;
                         d|delete|rm|'delete files')
-                            subshell "git rm$sel"
+                            dialog "delete files?\n$sel" && subshell "git rm$sel"
                             ;;
                         s|'show modified files only')
                             git_mode=1
