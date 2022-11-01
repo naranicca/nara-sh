@@ -1343,6 +1343,7 @@ nsh() {
     local version='0.1.20220921'
     local nsh_mode=
     local subprompt=
+    local INDENT=
     local STRING=
     local STRING_SUGGEST=
     local PRESTRING=
@@ -1524,7 +1525,7 @@ nsh() {
             fi
             move_cursor "$row0"
         fi
-        printf "$subprompt"
+        printf "$subprompt$INDENT"
         # command line
         if [[ $cursor -lt 0 || $opened == yes ]]; then
             local p= && [[ $opened == yes ]] && p="$PRESTRING"
@@ -3035,7 +3036,7 @@ nsh() {
             row0=$((LINES-__m))
             move_cursor "$row0;$COL"
         }
-        [[ -n $STRING ]] && reserve_margin "$(($(strlen "$STRING")/COLUMNS+1))"
+        [[ -n $STRING ]] && reserve_margin "$(($(strlen "$INDENT$STRING")/COLUMNS+1))"
         fill_cand() {
             if [[ $1 != force ]]; then
                 [[ -z "$NEXT_KEY" ]] && get_key -t $get_key_eps NEXT_KEY
@@ -3551,6 +3552,7 @@ nsh() {
                             running=0
                             break
                         else
+                            INDENT=
                             STRING=
                             STRING_SUGGEST=
                             cursor=0
@@ -3598,6 +3600,9 @@ nsh() {
                             print_prompt
                             #fill_cand
                             cand=(); show_cand_delayed=FILL
+                        elif [[ -n $INDENT ]]; then
+                            INDENT="$(printf "%*s" $(((${#INDENT}-1)/4*4)) '')"
+                            print_prompt
                         fi
                         ;;
                     $'\e[3~') # Del
@@ -3658,7 +3663,10 @@ nsh() {
                         local pre="${STRING:0:$cursor}" && pre="${pre%$word}"
                         local post="${STRING:$cursor}"
                         [[ $pre == "$STRING " ]] && pre=''
-                        if [ $num_cand -eq 0 ]; then
+                        if [[ $cursor == 0 ]]; then
+                            INDENT="$INDENT    "
+                            print_prompt
+                        elif [ $num_cand -eq 0 ]; then
                             show_cand
                         else
                             local idx0=0
@@ -3802,6 +3810,7 @@ nsh() {
                     print_prompt
                 fi
             done
+            INDENT=
             STRING=
             STRING_SUGGEST=
             subprompt=
