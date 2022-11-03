@@ -3398,10 +3398,19 @@ nsh() {
                 __i="$(jobs -l | menu)"
                 [[ -n "$__i" ]] && __i="${__i#[}" && fg "%${__i%%]*}"
             elif [[ $STRING == ps ]]; then
+                local param="-o pid,command"
                 while true; do
-                    local pid=$(ps -x -o pid,command | menu --header - --footer "+ $(draw_shortcut ENTER Kill \/ Search z Zoom q Quit)" --searchable --popup | awk '{print $1}')
-                    [[ -z $pid ]] && break
-                    kill -9 $pid
+                    local pid=$(ps -x $param | menu --header - --footer "+ $(draw_shortcut ENTER Kill a ShowAll \/ Search z Zoom q Quit)" --searchable --popup --key a 'echo all' | awk '{print $1}')
+                    if [[ $pid == all ]]; then
+                        if [[ $param == *\ -a\ * ]]; then
+                            param="-o pid,command"
+                        else
+                            param="-a -o pid,user,command"
+                        fi
+                    else
+                        [[ -z $pid ]] && break
+                        kill -9 $pid
+                    fi
                 done
             elif [[ "$STRING" == git\ log\ * || "$STRING" == git\ log ]]; then
                 flist="${STRING#*log}" && [[ $flist != --* ]] && flist="-- $flist"
