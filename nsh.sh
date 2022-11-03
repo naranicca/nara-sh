@@ -1625,6 +1625,15 @@ nsh() {
             elif [[ $word_idx -eq 0 ]]; then
                 c="$NSH_COLOR_ERR"
                 type "$word" &>/dev/null && c="$NSH_COLOR_CMD"
+            elif [[ $word == */* || $word =~ \.[A-Za-z]+$ ]]; then
+                wordbak="$word"
+                local d="${word%/*}" && [[ -n $d ]] && d+=/
+                local f="$NSH_COLOR_ERR${word##*/}"
+                if [[ -e $d ]]; then
+                    word="$NSH_COLOR_DIR$d$NSH_COLOR_ERR$f"
+                else
+                    word="$NSH_COLOR_ERR$word"
+                fi
             fi
             [[ $highlight_word -ne 0 && -z "$str$postfix" ]] && c+=$'\e'"[${NSH_COLOR_BKG}m"
             out+="$prefix$c$word"$'\e[0m'"$postfix"
