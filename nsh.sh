@@ -241,7 +241,7 @@ nshcp() {
                 local b="${src##*/}"
                 local tmp="$dst/${1##*/}"
                 if [[ -d "$tmp" && $op == *cp ]]; then
-                    for i in {1..99999}; do
+                    local i= && for i in {1..99999}; do
                         if [[ ! -d "${tmp}_($i)" ]]; then
                             echo -e "$NSH_PROMPT "$(print_filename "$tmp")" already exists. changed name --> $NSH_COLOR_DIR${tmp/#$HOME/$tilde}($i)\e[0m\e[K"
                             eval "$op -r \"$1\" \"${tmp}($i)\""
@@ -445,7 +445,7 @@ get_common_string() {
         shift
         while [ $# -gt 0 ]; do
             local item1="$1"
-            for ((n=0; n<$len; n++)); do
+            local n= && for ((n=0; n<$len; n++)); do
                 if [[ ${item0:n:1} != ${item1:n:1} ]]; then
                     len=$n
                     break
@@ -618,6 +618,7 @@ menu() {
         esac
         shift
     done <&1
+    [[ -z $footer && $search == on ]] && footer=+
     if [[ $(pipe_context) == \>* ]]; then
         local i=0
         local ahlen="${#accent_header}"
@@ -658,7 +659,8 @@ menu() {
         [[ $min_height == *% ]] && min_height=$((LINES*${min_height%?}/100))
         [[ $height -le $min_height ]] && height=$((min_height))
         [[ $height -gt $max_height ]] && height=$((max_height))
-        ((height--))
+        [[ $height -gt 1 ]] && ((height--))
+        [[ -z $footer ]] && ((height++))
 
         [[ -n "$header" ]] && printf "\r\e[0m\e[K$header\n" >&2 && ((height--))
         [[ $lines -gt $height ]] && lines=$height
@@ -667,25 +669,28 @@ menu() {
         [[ $cur -ge 0 && $cur -lt $beg ]] && beg=$cur
         [[ $cur -ge $((beg+lines)) ]] && beg=$((cur-lines+1))
         #[[ $1 == show ]] && beg=0 && lines=${#items[@]}
-        for ((i=$beg; i<$((beg+lines)); i++)); do
+        local i= && for ((i=$beg; i<$((beg+lines)); i++)); do
             local m="$cursor1" && [[ $i == $cur ]] && m="$cursor0"
             local c=0 && [[ $i == $cur ]] && c="$sel_color"
-            #printf '\r%s%b%s%b%*s\e[0m\n' "$m" "\e[${c}m" "${items[$i]}" "\e[${c}m" $COLUMNS ' ' >&2
+            local cr=$'\n' && [[ -z $footer && $i == $((beg+lines-1)) ]] && cr=
             if [[ $hscroll -lt 0 ]]; then
-                printf '\r%s%b%s\e[0m\e[K\n' "$m" "\e[${c}m" " ${items[$i]} " >&2
+                printf "\r%s%b%s\e[0m\e[K$cr" "$m" "\e[${c}m" " ${items[$i]} " >&2
             else
-                printf '\r%s%b%s\e[0m\e[K\n' "$m" "\e[${c}m" " ${items[$i]:$hscroll} " >&2
+                printf "\r%s%b%s\e[0m\e[K$cr" "$m" "\e[${c}m" " ${items[$i]:$hscroll} " >&2
             fi
         done
         [[ $1 == show ]] && return
-        [[ -z $footer || $footer == +* ]] && printf '\r\e[0;7m(%*s/%s)\e[0m\e[K' ${#cnt} $((cur+1)) $cnt >&2
-        [[ -n $footer && $search != /* ]] && printf "\e[0m\e[K${footer/#+/}\e[0m" >&2
+        if [[ -n $footer ]]; then
+            [[ -z $footer || $footer == +* ]] && printf '\r\e[0;7m(%*s/%s)\e[0m\e[K' ${#cnt} $((cur+1)) $cnt >&2
+            [[ -n $footer && $search != /* ]] && printf "\e[0m\e[K${footer/#+/}\e[0m" >&2
+        fi
         [[ $search == /* ]] && printf "\e[37;41m\e[K$search\e[0m" >&2
         [[ $1 == clear ]] && printf '\r\e[K' >&2 && toprow=
         if [[ -z $toprow ]]; then
             get_cursor_pos < /dev/tty
             [[ -n $header ]] && ((lines++))
             toprow=$((ROW-lines))
+            [[ -z $footer ]] && ((toprow++))
             move_cursor $toprow >&2
         fi
     }
@@ -697,7 +702,7 @@ menu() {
         get_key KEY < /dev/tty
         if [[ $KEY != $'\e' && "$keys" == *$KEY* ]]; then # cannot override ESC
             ret="$cur" && [[ $return_idx -eq 0 ]] && ret="${items[$ret]}"
-            for ((i=0; i<${#return_key[@]}; i++)); do
+            local i= && for ((i=0; i<${#return_key[@]}; i++)); do
                 if [[ "${return_key[$i]}" == *"$KEY"* ]]; then
                     if [[ $(type -t "${return_fn[$i]}") == function ]]; then
                         "${return_fn[$i]}" "$ret"
@@ -800,7 +805,7 @@ menu() {
             z)
                 local newrow=$((toprow*80/100))
                 [[ $newrow -le 2 ]] && newrow=2
-                for ((i=0; i<$((toprow-newrow)); i++)); do
+                local i= && for ((i=0; i<$((toprow-newrow)); i++)); do
                     move_cursor "$LINES;9999" >&2
                     echo >&2
                 done
@@ -875,7 +880,7 @@ gpu() {
             ll="$ll$line "
             if [[ $line == +----* ]]; then
                 ll=($ll)
-                for w in "${ll[@]}"; do
+                local w= && for w in "${ll[@]}"; do
                     [[ $w == *% ]] && res[${ll[1]}]="$(printf '%2d %4s' "${ll[1]}" "$w")" && break
                 done
                 ll=
@@ -939,10 +944,10 @@ disk() {
         local sideinfo=("${s0[@]}" "${s1[@]}")
 
         # sort by size
-        for ((i=0; i<$((${#files[@]}-1)); i++)); do
+        local i= && for ((i=0; i<$((${#files[@]}-1)); i++)); do
             [[ ${files[$i]} == ../ ]] && continue
             local idx=$i
-            for ((j=$((i+1)); j<${#files[@]}; j++)); do
+            local j= && for ((j=$((i+1)); j<${#files[@]}; j++)); do
                 [[ ${sideinfo[$j]} -gt ${sideinfo[$idx]} ]] && idx=$j
             done
             local t=${sideinfo[$i]}
@@ -1001,7 +1006,7 @@ nshgrep() {
         fi
         opt_idx=$opt
     done
-    for s in "${str[@]}"; do echo -e "$s\033[K"; done
+    local s= && for s in "${str[@]}"; do echo -e "$s\033[K"; done
     echo -ne '\033[4msearching...\033[0m'
     __param=
     [[ $__grep_match_case == OFF ]] && __param+=' -i '
@@ -1039,7 +1044,7 @@ git_branch() {
     done < <(LANGUAGE=en_US.UTF-8 git branch 2>/dev/null | sed 's/[ *]*//')
     #git branch -r 2>/dev/null | sed -n '/[ ]*origin\//p' | sed -n '/ -> /!p' | sed 's/^[ *]*//'
     #git branch -r 2>/dev/null | sed -n '/[ ]*origin\//!p' | sed -n '/ -> /!p' | sed 's/^[ *]*//'
-    for remote in $(git remote 2>/dev/null); do
+    local remote= && for remote in $(git remote 2>/dev/null); do
         echo "$remote"
         git branch -r 2>/dev/null | sed 's/^[ *]*//' | grep "^$remote/" | sed -n '/ -> /!p'
     done
@@ -1071,7 +1076,7 @@ git_fix_conflicts() {
         [[ -z "$idx" ]] && break
         $NSH_DEFAULT_EDITOR "${files[$idx]}"
         local cont=false
-        for f in "${files[@]}"; do
+        local f= && for f in "${files[@]}"; do
             [[ $(grep -c '^<\+ HEAD' "$f" 2>/dev/null) -gt 0 ]] && cont=true && break
         done
         if [[ $cont == false ]]; then
@@ -1145,7 +1150,7 @@ __unroll_string() {
         if [[ $param == *=* ]]; then
             p=${param%=*}
             param=${param#*=}
-            for ((i=0; i<${#params[@]}; i++)); do
+            local i= && for ((i=0; i<${#params[@]}; i++)); do
                 params[$i]="${params[$i]} $p"
             done
         fi
@@ -1154,7 +1159,7 @@ __unroll_string() {
             varpos="$varpos $pos"
             varcnt=$((varcnt+1))
             clone=("${params[@]}")
-            for ((i=0; i<${#params[@]}; i++)); do
+            local i= && for ((i=0; i<${#params[@]}; i++)); do
                 params[$i]="${params[$i]} $param"
             done
             shift
@@ -1165,22 +1170,22 @@ __unroll_string() {
                     param="$1"
                     [[ "$1" == - ]] && param=''
                 fi
-                for c in "${clone[@]}"; do
+                local c= && for c in "${clone[@]}"; do
                     params+=("$c $param")
                 done
                 [[ "$1" != *, ]] && break
                 shift
             done
         else
-            for ((i=0; i<${#params[@]}; i++)); do
+            local i= && for ((i=0; i<${#params[@]}; i++)); do
                 params[$i]="${params[$i]} $param"
             done
         fi
         pos=$((pos+1))
         shift
     done
-    for ((i=0; i<${#params[@]}; i++)); do
-        for ((v=1; v<=$varcnt; v++)); do
+    local i= && for ((i=0; i<${#params[@]}; i++)); do
+        local v= && for ((v=1; v<=$varcnt; v++)); do
             var="$(echo $varpos | awk "{ printf \$$v; }")"
             var="$(echo ${params[$i]} | awk "{ printf \$$var; }")"
             params[$i]="$(echo ${params[$i]} | sed "s@{$v}@$var@g")"
@@ -1203,7 +1208,7 @@ play2048() {
         fi
         if [ ${#board[@]} -ne 16 ]; then
             board=()
-            for i in {1..16}; do
+            local i= && for i in {1..16}; do
                 board+=("0")
             done
             add 2
@@ -1215,9 +1220,9 @@ play2048() {
     }
     display() {
         local r0=$(($(get_cursor_row)-4))
-        for j in {0..3}; do
+        local j= && for j in {0..3}; do
             move_cursor "$((r0+j));$col"
-            for i in {0..3}; do
+            local i= && for i in {0..3}; do
                 local n=${board[$((i+j*4))]}
                 local c='36'
                 case $n in
@@ -1256,7 +1261,7 @@ play2048() {
         local i=$1
         local inc=$2
         buf=()
-        for n in {1..4}; do
+        local n= && for n in {1..4}; do
             [[ ${board[$i]} -ne 0 ]] && buf+=("${board[$i]}") && board[$i]=0
             i=$((i+inc))
         done
@@ -1298,7 +1303,7 @@ play2048() {
             'u')
                 i=$((${#board_hist[@]}-16))
                 if [ $i -ge 0 ]; then
-                    for ((n=0; n<16; n++)); do
+                    local n= && for ((n=0; n<16; n++)); do
                         board[$n]="${board_hist[$((i+n))]}"
                     done
                     board_prev=("${board[@]}")
@@ -1340,9 +1345,10 @@ play2048() {
 # main function
 ############################################################################
 nsh() {
-    local version='0.1.20220921'
+    local version='0.1.0'
     local nsh_mode=
     local subprompt=
+    local INDENT=
     local STRING=
     local STRING_SUGGEST=
     local PRESTRING=
@@ -1480,7 +1486,7 @@ nsh() {
     clear_screen() {
         get_terminal_size
         move_cursor "$((LINES-1));9999"
-        for ((i=0; i<$max_lines; i++)); do echo; done
+        local i= && for ((i=0; i<$max_lines; i++)); do echo; done
         list2=()
     }
     print_prompt() {
@@ -1513,10 +1519,10 @@ nsh() {
         if [[ $opened == yes ]]; then
             move_cursor 1
         else
-            local plain_ps="$(echo -e "$subprompt $STRING" | sed 's/\x1b\[[0-9;]\+m//g')"
+            local plain_ps="$(echo -e "$subprompt $INDENT$STRING" | sed 's/\x1b\[[0-9;]\+m//g')"
             local h_plain_ps=$(($(strlen "$plain_ps")/COLUMNS))
             if [[ $((row0+h_plain_ps)) -gt $LINES ]]; then
-                for ((i=0; i<$((LINES-row0-h_plain_ps)); i++)); do
+                local i= && for ((i=0; i<$((LINES-row0-h_plain_ps)); i++)); do
                     echo
                 done
                 echo -e '\r\e[K'
@@ -1524,7 +1530,7 @@ nsh() {
             fi
             move_cursor "$row0"
         fi
-        printf "$subprompt"
+        printf "$subprompt$INDENT"
         # command line
         if [[ $cursor -lt 0 || $opened == yes ]]; then
             local p= && [[ $opened == yes ]] && p="$PRESTRING"
@@ -1533,7 +1539,7 @@ nsh() {
                     syntax_highlight "$p\"${list[$focus]}\""
                 else
                     STRING="$p"
-                    for ((i=0; i<${#list[@]}; i++)); do
+                    local i= && for ((i=0; i<${#list[@]}; i++)); do
                         [[ -n ${selected[$i]} ]] && STRING="$STRING\"${list[$i]}\" "
                     done
                     syntax_highlight "$STRING"
@@ -1624,6 +1630,15 @@ nsh() {
             elif [[ $word_idx -eq 0 ]]; then
                 c="$NSH_COLOR_ERR"
                 type "$word" &>/dev/null && c="$NSH_COLOR_CMD"
+            elif [[ $word == */* || $word =~ \.[A-Za-z]+$ ]]; then
+                wordbak="$word"
+                local d="${word%/*}" && [[ -n $d ]] && d+=/
+                local f="$NSH_COLOR_ERR${word##*/}"
+                if [[ -e $d ]]; then
+                    word="$NSH_COLOR_DIR$d$NSH_COLOR_ERR$f"
+                else
+                    word="$NSH_COLOR_ERR$word"
+                fi
             fi
             [[ $highlight_word -ne 0 && -z "$str$postfix" ]] && c+=$'\e'"[${NSH_COLOR_BKG}m"
             out+="$prefix$c$word"$'\e[0m'"$postfix"
@@ -1782,7 +1797,7 @@ nsh() {
     }
     draw_list() {
         move_cursor 2
-        for ((i=0; i<$max_lines; i++)); do
+        local i= && for ((i=0; i<$max_lines; i++)); do
             draw_line $((y+i))
             [[ $i -lt $((max_lines-1)) ]] && echo
         done
@@ -1793,7 +1808,7 @@ nsh() {
         update_list2=
         [[ ! -n "$NEXT_KEY" ]] && get_key -t $get_key_eps NEXT_KEY
         if [[ -n "$NEXT_KEY" && ! -d "${list[$focus]}" ]]; then
-            for ((i=0; i<$max_lines; i++)); do
+            local i= && for ((i=0; i<$max_lines; i++)); do
                 move_cursor "$((i+2));$((list_width+2))"
                 printf '\e[0m\e[K'
             done
@@ -1853,13 +1868,13 @@ nsh() {
 
         local w=$((COLUMNS-list_width))
         if [ $is_dir -eq 0 ]; then
-            for ((i=0; i<$lines; i++)); do
+            local i= && for ((i=0; i<$lines; i++)); do
                 move_cursor "$(($i+2));$((list_width+1))"
                 local sc="$NSH_COLOR_SC2" && [[ $i -ge $pb && $i -le $pe ]] && sc="$NSH_COLOR_SC1"
                 printf '\e[0m %s \e[0m %s\e[K' "$sc" "${list2[$i]//$'\t'/    }"
             done
         else
-            for ((i=0; i<$lines; i++)); do
+            local i= && for ((i=0; i<$lines; i++)); do
                 move_cursor "$(($i+2));$((list_width+1))"
                 local f="${list[$focus]}/${list2[$i]}"
                 local sc="$NSH_COLOR_SC2" && [[ $i -ge $pb && $i -le $pe ]] && sc="$NSH_COLOR_SC1"
@@ -1916,7 +1931,7 @@ nsh() {
         hide_cursor
         draw_list
         local w=$list_width && [[ $focus -lt 0 ]] && w=$COLUMNS
-        for ((i=${#list[@]}; i<$max_lines; i++)); do
+        local i= && for ((i=${#list[@]}; i<$max_lines; i++)); do
             move_cursor $((i+2))
             printf '%*s' "$w" ' '
         done
@@ -1937,7 +1952,7 @@ nsh() {
         move_cursor $LINES
         if [[ ${#selected[@]} -gt 0 ]]; then
             local size=0
-            for ((i=0; i<${#list[@]}; i++)); do
+            local i= && for ((i=0; i<${#list[@]}; i++)); do
                 [[ -n ${selected[$i]} ]] && size=$((size+${bytesizes[$i]}))
             done
             size="$(get_hsize $size)"
@@ -1998,7 +2013,7 @@ nsh() {
                 shift; shift
             done
             local w=0 wl=$((l0+l1+4))
-            for ((i=0; i<${#p[@]}; i+=2)); do
+            local i= && for ((i=0; i<${#p[@]}; i+=2)); do
                 [[ $((w+wl)) -ge $COLUMNS ]] && echo -e '\e[K' && w=0
                 printf "$NSH_COLOR_SH1 %-*s " $l0 "${p[$i]}"
                 printf "$NSH_COLOR_SH2 %-*s " $l1 "${p[$((i+1))]}"
@@ -2080,7 +2095,7 @@ nsh() {
         move_cursor "$y;$x"
         printf "$color  %-*s\e[0m" "$w" ' '
         ((y++))
-        for line in "${str[@]}"; do
+        local line= && for line in "${str[@]}"; do
             move_cursor "$y;$x"
             printf "$color  %-*s\e[0m" "$w" "$line"
             ((y++))
@@ -2103,7 +2118,7 @@ nsh() {
         else
             draw_buttons() {
                 move_cursor "$y;$((x+w-bw))"
-                for ((i=0; i<${#btn[@]}; i++)); do
+                local i= && for ((i=0; i<${#btn[@]}; i++)); do
                     if [ $i -eq $bidx ]; then
                         if [[ $1 == bold ]]; then
                             printf "\e[30;44m%s\e[0m" "[${btn[$i]}]"
@@ -2228,7 +2243,7 @@ nsh() {
         #[[ $git_mode -ne 0 && ${#list[@]} -eq 0 ]] && git_mode=0 && update
         [[ $focus -ge ${#list[@]} ]] && focus=0
 
-        for ((i=0; i<${#list[@]}; i++)); do
+        local i= && for ((i=0; i<${#list[@]}; i++)); do
             if [[ "$PWD/${list[$i]}" == $last_item ]]; then
                 focus=$i
                 [[ $focus -ge $max_lines ]] && y=$((focus-max_lines+1))
@@ -2250,6 +2265,8 @@ nsh() {
             local p="$(ls -ld "$1")" && p="${p%% *}"
             printf "%s" "${p:1:10}"
         }
+        [[ -z $NEXT_KEY ]] && get_key -t $get_key_eps NEXT_KEY
+        [[ -n $NEXT_KEY ]] && return
         while true; do
             [[ $side_info_idx -ge ${#list[@]} ]] && break
             [[ $((side_info_idx%10)) -eq 9 && $(($(get_timestamp)-tbeg)) -ge 1000 ]] && break
@@ -2270,10 +2287,10 @@ nsh() {
                     bytesizes[$side_info_idx]=$size
                     sideinfo[$side_info_idx]="$(get_hsize $size)"
                     local i=0 && [[ ${list[0]} == .. || ${list[0]} == ../ ]] && i=1
-                    for (( ; i<$side_info_idx; i++)); do
+                    local i= && for (( ; i<$side_info_idx; i++)); do
                         if [[ $size -gt ${bytesizes[$i]} ]]; then
                             local t=("${git_mark[$side_info_idx]}" "${list[$side_info_idx]}" "${sideinfo[$side_info_idx]}" "${bytesizes[$side_info_idx]}")
-                            for ((j=$side_info_idx; j>$i; j--)); do
+                            local j= && for ((j=$side_info_idx; j>$i; j--)); do
                                 git_mark[$j]="${git_mark[$((j-1))]}"
                                 list[$j]="${list[$((j-1))]}"
                                 sideinfo[$j]="${sideinfo[$((j-1))]}"
@@ -2310,7 +2327,7 @@ nsh() {
         done
         if [ $redraw -ne 0 ]; then
             redraw
-            for ((i=${#list[@]}; i<$max_lines; i++)); do
+            local i= && for ((i=${#list[@]}; i<$max_lines; i++)); do
                 move_cursor $((i+2))
                 printf '%*s' "$list_width" ' '
             done
@@ -2368,7 +2385,7 @@ nsh() {
             esac
         done < <(LANGUAGE=en_US.UTF-8 git status 2>&1 || echo @@@ERROR@@@)
         if [ -z "$git_stat" ]; then
-            [[ $opened == yes ]] && for ((i=0; i<${#list[@]}; i++)); do
+            [[ $opened == yes ]] && local i= && for ((i=0; i<${#list[@]}; i++)); do
                 git_mark[$i]=' '
                 if [ -d "${list[$i]}" -a -d "${list[$i]}/.git/" ]; then
                     git_mark[$i]=$'\e[42m \e[0m'
@@ -2389,7 +2406,7 @@ nsh() {
             git_stat="\e[30;${git_stat_c}m($git_stat)\e[0;$((git_stat_c-10))m$s\e[0m"
             if [[ $opened == yes ]]; then
                 if [ -n "$tmp" -o $git_mode -ne 0 ]; then
-                    for ((i=0; i<${#list[@]}; i++)); do
+                    local i= && for ((i=0; i<${#list[@]}; i++)); do
                         [[ "${list[$i]}" == .. ]] && continue
                         if [[ "$tmp;" == *";${list[$i]};"* ]]; then
                             git_mark[$i]=$'\e[41m \e[0m'
@@ -2407,9 +2424,9 @@ nsh() {
                 tmp= && while read line; do
                     tmp="$tmp;$line"
                 done < <(git ls-files --others --exclude-standard 2>/dev/null | awk -F / '{print $1}' | uniq)
-                for ((i=0; i<${#list[@]}; i++)); do
+                local i= && for ((i=0; i<${#list[@]}; i++)); do
                     if [[ "$tmp;" == *"${list[$i]};"* ]]; then
-                        [[ ${#git_mark[@]} -eq 0 ]] && for ((n=0; n<${#list[@]}; n++)); do
+                        [[ ${#git_mark[@]} -eq 0 ]] && local n= && for ((n=0; n<${#list[@]}; n++)); do
                             [[ -z "${git_mark[$n]}" ]] && git_mark[$n]=' '
                         done
                         [[ "${git_mark[$i]}" == \  ]] && git_mark[$i]='?'
@@ -2444,7 +2461,7 @@ nsh() {
             elif [[ $op == mv ]]; then
                 printf '\e[30;42m\e[K| Move to: %s\e[0m' "$(print_filename "$path")"
             else
-                printf '\e[30;42m\e[K| Symbolic link\e[0m'
+                printf '\e[30;42m\e[K| Make a Symbolic link of...\e[0m'
             fi
             dirs=()
             files=()
@@ -2468,7 +2485,7 @@ nsh() {
             fi
             listy_size=${#ylist[@]}
             local idx=0
-            for f in "${ylist[@]}"; do
+            local f= && for f in "${ylist[@]}"; do
                 if [[ "$path/$f" == "$ylast_item" ]]; then
                     yfocus=$idx
                     break
@@ -2483,7 +2500,7 @@ nsh() {
             local d=${#dirs[@]}
             local w=$((COLUMNS-list_width))
             [[ $((yy+max_lines)) -lt $yfocus ]] && yy=$((yfocus-max_lines+1))
-            for ((i=0; i<$max_lines; i++)); do
+            local i= && for ((i=0; i<$max_lines; i++)); do
                 move_cursor "$((i+2));$((list_width+3))"
                 if [ $((yy+i)) -lt $listy_size ]; then
                     local fmt="$(put_file_color "$path/${ylist[$((yy+i))]}")"
@@ -2497,7 +2514,7 @@ nsh() {
         draw_shortcut_yank() {
             move_cursor $LINES
             if [[ $op == cp ]]; then
-                draw_shortcut "p" "Paste " "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+                draw_shortcut "p" "Paste " "/" "Search" "I" "Mkdir " "L" "SymbolicLink" "~" "Home  " "//" "Root  " "'" "Jump  "
             elif [[ $op == mv ]]; then
                 draw_shortcut "p" "Paste " "D" "Delete" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             else
@@ -2610,7 +2627,7 @@ nsh() {
                                 break
                                 ;;
                             [[:print:]])
-                                for f in "$path"/*"$filter$KEY"*; do
+                                local f= && for f in "$path"/*"$filter$KEY"*; do
                                     if [ -e "$f" ]; then
                                         filter="$filter$KEY"
                                         yopen "$path"
@@ -2671,7 +2688,7 @@ nsh() {
                             else
                                 dialog "Delete ${#selected[@]} files?" " Yes " " No "
                             fi
-                            [[ $? -eq 0 ]] && for f in "${selected[@]}"; do
+                            [[ $? -eq 0 ]] && local f= && for f in "${selected[@]}"; do
                                 rm -rf "$f"
                             done
                         fi
@@ -2683,6 +2700,13 @@ nsh() {
                     if [[ $op == ln ]]; then
                         last_item="$PWD/${ylist[$yfocus]%/}"
                         ln -s "$path/${ylist[$yfocus]}" "${last_item##*/}"
+                        update
+                        return
+                    elif [[ $op == cp ]]; then
+                        local f= && for f in "${selected[@]}"; do
+                            f="${f%/}" && f="${f/$PWD\//}"
+                            ln -s "$PWD/$f" "$path/$f"
+                        done
                         update
                         return
                     fi
@@ -2768,7 +2792,6 @@ nsh() {
                 dirs=()
                 files=()
                 sideinfo=()
-                #for f in *"$1"*; do
                 while read f; do
                     if [ -d "$f" ]; then
                         dirs+=("$f")
@@ -2807,7 +2830,7 @@ nsh() {
         selected=()
         if [[ $opened != yes ]]; then
             nsh_main_loop search "$@" 1>&2
-            for s in "${selected[@]}"; do
+            local s= && for s in "${selected[@]}"; do
                 [[ -n $s ]] && echo "$s"
             done
             nsh_mode=
@@ -2847,7 +2870,7 @@ nsh() {
                     local dist=0
                     local cur="${w:0:1}"
                     local l="$line"
-                    for ((i=1; i<${#w}; i++)); do
+                    local i= && for ((i=1; i<${#w}; i++)); do
                         cur+="${w:$i:1}"
                         if ! grep $opt "$cur" <<< "$l" &>/dev/null; then
                             ((dist++))
@@ -2956,11 +2979,13 @@ nsh() {
                     searchword=${searchword%?}
                     ;;
                 $'\e'|$'\t'|$'\n')
-                    [[ -z "$cmd" || ${#list[@]} -eq 0 ]] && NEXT_KEY=$'\e' && break
-                    list_width=$((COLUMNS/2))
-                    side_info_idx=0
-                    update_side_info
-                    break
+                    if [[ $KEY == $'\e' || ${#list[@]} -gt 0 ]]; then
+                        [[ -z "$cmd" ]] && NEXT_KEY=$'\e' && break
+                        list_width=$((COLUMNS/2))
+                        side_info_idx=0
+                        update_side_info
+                        break
+                    fi
                     ;;
                 $'\e'*)
                     ;;
@@ -3030,11 +3055,11 @@ nsh() {
             [[ $__m -ge $LINES ]] && __m=$((LINES-1))
             get_cursor_pos
             [[ $((ROW+__m)) -lt $LINES ]] && return
-            for ((i=0; i<$__m; i++)); do echo; done
+            local i= && for ((i=0; i<$__m; i++)); do echo; done
             row0=$((LINES-__m))
             move_cursor "$row0;$COL"
         }
-        [[ -n $STRING ]] && reserve_margin "$(($(strlen "$STRING")/COLUMNS+1))"
+        [[ -n $STRING ]] && reserve_margin "$(($(strlen "$INDENT$STRING")/COLUMNS+1))"
         fill_cand() {
             if [[ $1 != force ]]; then
                 [[ -z "$NEXT_KEY" ]] && get_key -t $get_key_eps NEXT_KEY
@@ -3051,16 +3076,16 @@ nsh() {
             if [[ $cursor -eq 0 ]]; then
                 :
             elif [[ -z $word && ${STRING:0:$cursor} == *\' ]]; then
-                cand=() && cand_color=() && for ((i=0; i<${#bookmarks[@]}; i++)); do
+                cand=() && cand_color=() && local i= && for ((i=0; i<${#bookmarks[@]}; i++)); do
                     cand+=("${bookmarks[$i]#* }")
                     cand_color+=("$NSH_COLOR_DIR")
                 done
-                for ((i=$((${#visited[@]}-1)); i>=0; i--)); do
+                local i= && for ((i=$((${#visited[@]}-1)); i>=0; i--)); do
                     cand+=("${visited[$i]}")
                     cand_color+=("$NSH_COLOR_DIR")
                 done
             elif [[ "$word" == \; ]]; then
-                cand=() && cand_color=() && for ((i=$((${#history[@]}-1)); i>=0; i--)); do
+                cand=() && cand_color=() && local i= && for ((i=$((${#history[@]}-1)); i>=0; i--)); do
                     cand+=("${history[$i]}")
                     cand_color+=("$NSH_COLOR_TXT")
                 done
@@ -3132,7 +3157,7 @@ nsh() {
             usage=()
             get_cursor_pos
             [[ $ROW -ge $LINES ]] && return
-            for ((i=$ROW; i<$LINES; i++)); do
+            local i= && for ((i=$ROW; i<$LINES; i++)); do
                 printf '\e[K\n'
             done
             printf '\e[K'
@@ -3153,8 +3178,9 @@ nsh() {
             last_word="$word"
             get_cursor_pos
             local path="${abword%/*}"
+            local c
             if [ $num_cand -gt 0 ]; then
-                for c in "${cand[@]}"; do
+                local c= && for c in "${cand[@]}"; do
                     if [[ ! -z "$path" ]]; then
                         c1="${c/#$path\//}"
                     else
@@ -3181,7 +3207,7 @@ nsh() {
             local margin_ch=' '
             w_cand=$((w_cand+${#margin_ch}))
             [[ $x_cand -ge ${#margin_ch} ]] && x_cand=$((x_cand-${#margin_ch}))
-            for ((row=$((ROW+1)); row<=$LINES; row++)); do
+            local row= && for ((row=$((ROW+1)); row<=$LINES; row++)); do
                 local i=$((y_cand+row-ROW-1))
                 if [ $cand_scroll -eq 0 ]; then
                     move_cursor $row
@@ -3296,7 +3322,7 @@ nsh() {
                             usage+=("$(format_argparse $line)")
                         done < <(grep add_argument "$fname" 2>/dev/null | tr -d '\r' 2>/dev/null | sed -e "s/\('\|\"\)//g" -e "s/.*add_argument.*(//")
                         local _t="Usage: python $fname"
-                        for i in "${usage[@]}"; do
+                        local i= && for i in "${usage[@]}"; do
                             [[ $i == -* || "$i" == \ \ \ \ --* ]] && _t="$_t [option]..." && break
                         done
                         for i in "${usage[@]}"; do
@@ -3336,7 +3362,7 @@ nsh() {
             [[ ${#cand[@]} -eq 0 ]] && return
             local pre="${STRING:0:$cursor}" && pre="${pre%$word}"
             local post="${STRING:$cursor}"
-            for c in "${cand[@]}"; do
+            local c= && for c in "${cand[@]}"; do
                 [[ $c == \>* ]] && continue
                 pre="$pre$c "
             done
@@ -3386,10 +3412,19 @@ nsh() {
                 __i="$(jobs -l | menu)"
                 [[ -n "$__i" ]] && __i="${__i#[}" && fg "%${__i%%]*}"
             elif [[ $STRING == ps ]]; then
+                local param="-o pid,command"
                 while true; do
-                    local pid=$(ps -x -o pid,command | menu --header - --footer "+ $(draw_shortcut ENTER Kill \/ Search z Zoom q Quit)" --searchable --popup | awk '{print $1}')
-                    [[ -z $pid ]] && break
-                    kill -9 $pid
+                    local pid=$(ps -x $param | menu --header - --footer "+ $(draw_shortcut ENTER Kill a ShowAll \/ Search z Zoom q Quit)" --searchable --popup --key a 'echo all' | awk '{print $1}')
+                    if [[ $pid == all ]]; then
+                        if [[ $param == *\ -a\ * ]]; then
+                            param="-o pid,command"
+                        else
+                            param="-a -o pid,user,command"
+                        fi
+                    else
+                        [[ -z $pid ]] && break
+                        kill -9 $pid
+                    fi
                 done
             elif [[ "$STRING" == git\ log\ * || "$STRING" == git\ log ]]; then
                 flist="${STRING#*log}" && [[ $flist != --* ]] && flist="-- $flist"
@@ -3402,7 +3437,7 @@ nsh() {
                     echo $KEY
                 fi
             elif [[ "$STRING" == git\ blame\ * ]]; then
-                eval "$STRING" | sed -e 's/\([^ ]\+ \)[^(]*/\1/' -e 's/\t/    /g' | menu -h $((LINES-1)) --popup --preview git_commit_preview --searchable --hscroll --footer "+ $(draw_shortcut l ScrollRight h ScrollLeft \/ Search Tab ViewCommit)" 1>/dev/null
+                local l="$(eval "$STRING" | sed -e 's/\([^ ]\+ \)[^(]*/\1/' -e 's/\t/    /g' | menu -h $((LINES-1)) --popup --preview git_commit_preview --searchable --hscroll --footer "+ $(draw_shortcut l ScrollRight h ScrollLeft \/ Search Tab ViewCommit)")"
             elif [[ "$STRING" == git\ remote\ add ]]; then
                 echo -en "$NSH_PROMPT Repository name: "
                 read_string 'upstream'
@@ -3513,6 +3548,10 @@ nsh() {
                         continue
                     fi
                 else
+                    if [[ -n $STRING && $cursor -eq ${#STRING} ]] && [[ -z $STRING_SUGGEST || $STRING_SUGGEST != $STRING* ]]; then
+                        STRING_SUGGEST="$(printf "%s\n" "${history[@]}" | grep "^${STRING//./\\.}" | tail -n 1)"
+                        print_prompt
+                    fi
                     get_key KEY
                     NEXT_KEY=
                 fi
@@ -3549,11 +3588,12 @@ nsh() {
                             running=0
                             break
                         else
+                            INDENT=
                             STRING=
                             STRING_SUGGEST=
                             cursor=0
                             cand=() && usage=()
-                            for ((i=$((row0+1)); i<=$LINES; i++)); do
+                            local i= && for ((i=$((row0+1)); i<=$LINES; i++)); do
                                 move_cursor $i; printf '\e[K'
                             done
                             move_cursor $row0
@@ -3596,6 +3636,9 @@ nsh() {
                             print_prompt
                             #fill_cand
                             cand=(); show_cand_delayed=FILL
+                        elif [[ -n $INDENT ]]; then
+                            INDENT="$(printf "%*s" $(((${#INDENT}-1)/4*4)) '')"
+                            print_prompt
                         fi
                         ;;
                     $'\e[3~') # Del
@@ -3656,7 +3699,10 @@ nsh() {
                         local pre="${STRING:0:$cursor}" && pre="${pre%$word}"
                         local post="${STRING:$cursor}"
                         [[ $pre == "$STRING " ]] && pre=''
-                        if [ $num_cand -eq 0 ]; then
+                        if [[ $cursor == 0 ]]; then
+                            INDENT="$INDENT    "
+                            print_prompt
+                        elif [ $num_cand -eq 0 ]; then
                             show_cand
                         else
                             local idx0=0
@@ -3794,12 +3840,9 @@ nsh() {
                         fill_cand
                         ;;
                 esac
-                [[ -z "$NEXT_KEY" ]] && get_key -t 0.1 NEXT_KEY
-                [[ -z "$NEXT_KEY" && -n $STRING && $cursor -eq ${#STRING} ]] && if [[ -z $STRING_SUGGEST || $STRING_SUGGEST != $STRING* ]]; then
-                    STRING_SUGGEST="$(printf "%s\n" "${history[@]}" | grep "^${STRING//./\\.}" | tail -n 1)"
-                    print_prompt
-                fi
+                [[ -z $NEXT_KEY ]] && get_key -t 0.1 NEXT_KEY
             done
+            INDENT=
             STRING=
             STRING_SUGGEST=
             subprompt=
@@ -3810,7 +3853,7 @@ nsh() {
         update
     }
     scroll_down() {
-        for ((i=0; i<${1:-1}; i++)); do
+        local i= && for ((i=0; i<${1:-1}; i++)); do
             if [ $focus -lt $((${#list[@]}-1)) ]; then
                 ((focus++))
                 if [ $((focus-y)) -eq $max_lines ]; then
@@ -3833,7 +3876,7 @@ nsh() {
         [[ ${#selected[@]} -eq 0 ]] && draw_filestat
     }
     scroll_up() {
-        for ((i=0; i<${1:-1}; i++)); do
+        local i= && for ((i=0; i<${1:-1}; i++)); do
             if [ $focus -gt 0 ]; then
                 ((focus--))
                 if [ $focus -lt $y ]; then
@@ -3860,23 +3903,23 @@ nsh() {
         if [ -z "$KEY" ]; then
             move_cursor 2 >&2
             local f="$(printf '%*s' $COLUMNS '')" && f="${f//?/-}"
-            i="$( (for ((i=0; i<${#bookmarks[@]}; i++)); do
+            local i="$( (for ((i=0; i<${#bookmarks[@]}; i++)); do
                 local val="${bookmarks[$i]#* }"
                 echo "${bookmarks[$i]%% *}   ${val/#$HOME\//$tilde\/}"
             done; for ((i=$((${#visited[@]}-1)); i>=0; i--)); do
                 echo "    ${visited[$i]}"
-            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut v Edit)" --searchable --key v 'echo \!edit')"
+            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut r Reload v Edit)" --searchable --key r 'echo \!reload' --key v 'echo \!edit')"
             if [[ $opened == yes ]]; then
                 disable_line_wrapping >&2
                 hide_cursor >&2
             fi
-            if [[ $i == \!edit ]]; then
+            if [[ $i == \!* ]]; then
                 echo "$i"
             elif [[ -n "$i" ]]; then
                 echo "${i#?}" | sed 's/^\ *//'
             fi
         else
-            for ((i=0; i<${#bookmarks[@]}; i++)); do
+            local i= && for ((i=0; i<${#bookmarks[@]}; i++)); do
                 [[ "${bookmarks[$i]}" == "$KEY"\ * ]] && echo "${bookmarks[$i]#* }" && return
             done
         fi
@@ -3963,7 +4006,7 @@ nsh() {
                             break
                         else
                             local sel=
-                            for ((i=0; i<${#list[@]}; i++)); do
+                            local i= && for ((i=0; i<${#list[@]}; i++)); do
                                 [[ -n ${selected[$i]} ]] && sel="$sel \"${list[$i]}\""
                             done
                             NEXT_KEY=$'\e[H'
@@ -4007,7 +4050,7 @@ nsh() {
                     ;;
                 $'\01')
                     selected=()
-                    for ((i=0; i<${#list[@]}; i++)); do
+                    local i= && for ((i=0; i<${#list[@]}; i++)); do
                         f="${list[$i]}"
                         [[ $f != '..' ]] && selected[$i]="$PWD/$f"
                     done
@@ -4037,17 +4080,17 @@ nsh() {
                     NEXT_KEY=
                     get_key -t 1 KEY
                     [[ -z "$KEY" ]] && KEY=':'
-                    sel= && for ((i=0; i<${#list[@]}; i++)); do
+                    local sel= && local i= && for ((i=0; i<${#list[@]}; i++)); do
                         [[ -n ${selected[$i]} ]] && sel="$sel \"${list[$i]}\""
                     done
                     [[ -z "$sel" ]] && sel=' .'
                     git_op() {
                         case "$1" in
                         p|pull)
-                            subshell "git pull origin $(git_branch_name)"
+                            dialog "git: pulll from $(git_branch_name)?" && subshell "git pull origin $(git_branch_name)"
                             ;;
                         h|push)
-                            subshell "git push origin $(git_branch_name)"
+                            dialog "git: push to $(git_branch_name)?" && subshell "git push origin $(git_branch_name)"
                             ;;
                         'create a branch')
                             subshell 'git checkout -b '
@@ -4081,7 +4124,7 @@ nsh() {
                             subshell "git commit$sel"
                             ;;
                         u|revert)
-                            if [ $git_stat_c -eq 101 ]; then
+                            dialog "git: revert changes?" && if [ $git_stat_c -eq 101 ]; then
                                 subshell "git checkout --$sel"
                             else
                                 git_revert() {
@@ -4109,10 +4152,10 @@ nsh() {
                             fi
                             ;;
                         a|add|'add files')
-                            subshell "git add$sel"
+                            dialog "add files?\n$sel" && subshell "git add$sel"
                             ;;
                         d|delete|rm|'delete files')
-                            subshell "git rm$sel"
+                            dialog "delete files?\n$sel" && subshell "git rm$sel"
                             ;;
                         s|'show modified files only')
                             git_mode=1
@@ -4186,7 +4229,7 @@ nsh() {
                     cnt=${#selected[@]}
                     if [ $cnt -gt 0 ]; then
                         if [ $cnt -eq 1 ]; then
-                            for f in "${selected[@]}"; do
+                            local f= && for f in "${selected[@]}"; do
                                 dialog "Delete $(basename "$f")?" " Yes " " No "
                             done
                         else
@@ -4202,7 +4245,7 @@ nsh() {
                             last_item="$PWD/${list[$focus]}"
                             local idx=0
                             local cnt=${#selected[@]}
-                            for f in "${selected[@]}"; do
+                            local f= && for f in "${selected[@]}"; do
                                 dialog --notice "Deleting...\n$f"
                                 rm -rf "$f"
                                 ((idx++))
@@ -4331,7 +4374,7 @@ nsh() {
                         fi
                     fi
                     if [[ $__v -ne 0 && -n "$NSH_IMAGE_PREVIEW" && $(is_image "${list[$focus]}") == YES ]]; then
-                        for ((i=0; i<=$max_lines; i++)); do
+                        local i= && for ((i=0; i<=$max_lines; i++)); do
                             move_cursor $((i+2))
                             printf "${list2[$i]}\e[K"
                         done
@@ -4354,7 +4397,7 @@ nsh() {
                             __y_max=$((${#list2[@]}-max_lines-0))
                             [[ $__y -gt $__y_max ]] && __y=$__y_max
                             [[ $__y -lt 0 ]] && __y=0
-                            for ((i=0; i<$max_lines; i++)); do
+                            local i= && for ((i=0; i<$max_lines; i++)); do
                                 move_cursor "$(($i+2));$list_width"
                                 local ln=$((i+__y))
                                 local str="${list2[$ln]//$'\t'/    }"
@@ -4403,7 +4446,7 @@ nsh() {
                                             redraw
                                         fi
                                     else
-                                        for ((i=$sel0; i>=0; i--)); do
+                                        local i= && for ((i=$sel0; i>=0; i--)); do
                                             if [[ "${list2[$i]}" == @* ]]; then
                                                 local fname="${list2[$i]}" && fname="${fname#?}"
                                                 [[ -d "${list[$focus]}" ]] && fname="$(cd ${list[$focus]} && git_root)/$fname"
@@ -4421,7 +4464,7 @@ nsh() {
                                 'c'|'u')
                                     local fname="${list[$focus]}"
                                     if [ -n $sel ]; then
-                                        for ((i=$sel0; i>=0; i--)); do
+                                        local i= && for ((i=$sel0; i>=0; i--)); do
                                             [[ ${list2[$i]} == @* ]] && fname="${list2[$i]}" && fname="${fname#?}"
                                         done
                                     fi
@@ -4440,7 +4483,7 @@ nsh() {
                                             else
                                                 ln=0
                                             fi
-                                            for ((i=$sel0; i<=$sel1; i++)); do
+                                            local i= && for ((i=$sel0; i<=$sel1; i++)); do
                                                 local l="${list2[$i]}"
                                                 if [[ "$l" == $'\e[31m'* ]]; then
                                                     l="${l#*-}"
@@ -4462,7 +4505,7 @@ nsh() {
                                     fi
                                     ;;
                                 $'\t')
-                                    sel= && for ((sel0=$((sel1+1)); sel0<${#list2[@]}; sel0++)); do
+                                    local sel= && local sel0= && local sel1= && for ((sel0=$((sel1+1)); sel0<${#list2[@]}; sel0++)); do
                                         if [[ ${list2[$sel0]} == $'\e[31m'* || ${list2[$sel0]} == *$'\e[33m'*$'\e[32m+'* ]]; then
                                             sel=- && for ((sel1=$sel0; sel1<${#list2[@]}; sel1++)); do
                                                 [[ ${list2[$sel1]} != $'\e[31m'* && ${list2[$sel1]} != *$'\e[33m'*$'\e[32m+'* ]] && ((sel1--)) && break
@@ -4478,7 +4521,7 @@ nsh() {
                                     fi
                                     ;;
                                 $'\e[Z')
-                                    sel= && for ((sel1=$((sel0-1)); sel1>=0; sel1--)); do
+                                    local sel= && local sel0= && local sel1= && for ((sel1=$((sel0-1)); sel1>=0; sel1--)); do
                                         if [[ ${list2[$sel1]} == $'\e[31m'* || ${list2[$sel1]} == *$'\e[33m'*$'\e[32m+'* ]]; then
                                             sel=- && for ((sel0=$sel1; sel0>=0; sel0--)); do
                                                 [[ ${list2[$sel0]} != $'\e[31m'* && ${list2[$sel0]} != *$'\e[33m'*$'\e[32m+'* ]] && ((sel0++)) && break
@@ -4524,8 +4567,8 @@ nsh() {
                     # user command
                     if [[ -z $nsh_mode ]]; then
                         last_item="$PWD/${list[$focus]}"
-                        tmp=
-                        for ((i=0; i<${#list[@]}; i++)); do
+                        local tmp=
+                        local i= && for ((i=0; i<${#list[@]}; i++)); do
                             [[ -n ${selected[$i]} ]] && tmp="$tmp\"${list[$i]}\" " && [[ -d "${list[$i]}" ]] && tmp="${tmp%??}/\" "
                         done
                         NEXT_KEY=$'\e[H'
@@ -4556,8 +4599,7 @@ nsh() {
                     get_key KEY
                     if [[ $KEY =~ [a-zA-Z0-9] ]]; then
                         local addr="$(pwd)" && [[ "$addr" != */ ]] && addr="$addr/"
-                        local i
-                        for ((i=0; i<${#bookmarks[@]}; i++)); do
+                        local i= && for ((i=0; i<${#bookmarks[@]}; i++)); do
                             [[ "${bookmarks[$i]}" == "$KEY"* ]] && break
                         done
                         bookmarks[$i]="$KEY $addr"
@@ -4573,7 +4615,10 @@ nsh() {
                     ;;
                 "'"|'"')
                     local addr="$(select_bookmark "$KEY")"
-                    if [[ "$addr" == \!edit ]]; then
+                    if [[ "$addr" == \!reload ]]; then
+                        load_bookmarks
+                        NEXT_KEY=\"
+                    elif [[ "$addr" == \!edit ]]; then
                         close_pane
                         "$NSH_DEFAULT_EDITOR" ~/.config/nsh/bookmarks
                         load_bookmarks
