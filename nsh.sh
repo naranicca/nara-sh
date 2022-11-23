@@ -3536,6 +3536,10 @@ nsh() {
                         continue
                     fi
                 else
+                    if [[ -n $STRING && $cursor -eq ${#STRING} ]] && [[ -z $STRING_SUGGEST || $STRING_SUGGEST != $STRING* ]]; then
+                        STRING_SUGGEST="$(printf "%s\n" "${history[@]}" | grep "^${STRING//./\\.}" | tail -n 1)"
+                        print_prompt
+                    fi
                     get_key KEY
                     NEXT_KEY=
                 fi
@@ -3824,11 +3828,7 @@ nsh() {
                         fill_cand
                         ;;
                 esac
-                [[ -z "$NEXT_KEY" ]] && get_key -t 0.1 NEXT_KEY
-                [[ -z "$NEXT_KEY" && -n $STRING && $cursor -eq ${#STRING} ]] && if [[ -z $STRING_SUGGEST || $STRING_SUGGEST != $STRING* ]]; then
-                    STRING_SUGGEST="$(printf "%s\n" "${history[@]}" | grep "^${STRING//./\\.}" | tail -n 1)"
-                    print_prompt
-                fi
+                [[ -z $NEXT_KEY ]] && get_key -t 0.1 NEXT_KEY
             done
             INDENT=
             STRING=
