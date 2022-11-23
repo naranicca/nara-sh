@@ -1514,7 +1514,7 @@ nsh() {
         if [[ $opened == yes ]]; then
             move_cursor 1
         else
-            local plain_ps="$(echo -e "$subprompt $STRING" | sed 's/\x1b\[[0-9;]\+m//g')"
+            local plain_ps="$(echo -e "$subprompt $INDENT$STRING" | sed 's/\x1b\[[0-9;]\+m//g')"
             local h_plain_ps=$(($(strlen "$plain_ps")/COLUMNS))
             if [[ $((row0+h_plain_ps)) -gt $LINES ]]; then
                 local i= && for ((i=0; i<$((LINES-row0-h_plain_ps)); i++)); do
@@ -3423,7 +3423,7 @@ nsh() {
                     echo $KEY
                 fi
             elif [[ "$STRING" == git\ blame\ * ]]; then
-                eval "$STRING" | sed -e 's/\([^ ]\+ \)[^(]*/\1/' -e 's/\t/    /g' | menu -h $((LINES-1)) --popup --preview git_commit_preview --searchable --hscroll --footer "+ $(draw_shortcut l ScrollRight h ScrollLeft \/ Search Tab ViewCommit)" 1>/dev/null
+                local l="$(eval "$STRING" | sed -e 's/\([^ ]\+ \)[^(]*/\1/' -e 's/\t/    /g' | menu -h $((LINES-1)) --popup --preview git_commit_preview --searchable --hscroll --footer "+ $(draw_shortcut l ScrollRight h ScrollLeft \/ Search Tab ViewCommit)")"
             elif [[ "$STRING" == git\ remote\ add ]]; then
                 echo -en "$NSH_PROMPT Repository name: "
                 read_string 'upstream'
