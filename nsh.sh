@@ -2967,11 +2967,13 @@ nsh() {
                     searchword=${searchword%?}
                     ;;
                 $'\e'|$'\t'|$'\n')
-                    [[ -z "$cmd" || ${#list[@]} -eq 0 ]] && NEXT_KEY=$'\e' && break
-                    list_width=$((COLUMNS/2))
-                    side_info_idx=0
-                    update_side_info
-                    break
+                    if [[ $KEY == $'\e' || ${#list[@]} -gt 0 ]]; then
+                        [[ -z "$cmd" ]] && NEXT_KEY=$'\e' && break
+                        list_width=$((COLUMNS/2))
+                        side_info_idx=0
+                        update_side_info
+                        break
+                    fi
                     ;;
                 $'\e'*)
                     ;;
