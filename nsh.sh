@@ -658,7 +658,7 @@ menu() {
         [[ $min_height == *% ]] && min_height=$((LINES*${min_height%?}/100))
         [[ $height -le $min_height ]] && height=$((min_height))
         [[ $height -gt $max_height ]] && height=$((max_height))
-        ((height--))
+        [[ $height -gt 1 ]] && ((height--))
 
         [[ -n "$header" ]] && printf "\r\e[0m\e[K$header\n" >&2 && ((height--))
         [[ $lines -gt $height ]] && lines=$height
