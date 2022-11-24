@@ -2456,7 +2456,7 @@ nsh() {
             elif [[ $op == mv ]]; then
                 printf '\e[30;42m\e[K| Move to: %s\e[0m' "$(print_filename "$path")"
             else
-                printf '\e[30;42m\e[K| Symbolic link\e[0m'
+                printf '\e[30;42m\e[K| Make a Symbolic link of...\e[0m'
             fi
             dirs=()
             files=()
@@ -2509,7 +2509,7 @@ nsh() {
         draw_shortcut_yank() {
             move_cursor $LINES
             if [[ $op == cp ]]; then
-                draw_shortcut "p" "Paste " "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+                draw_shortcut "p" "Paste " "/" "Search" "I" "Mkdir " "L" "SymbolicLink" "~" "Home  " "//" "Root  " "'" "Jump  "
             elif [[ $op == mv ]]; then
                 draw_shortcut "p" "Paste " "D" "Delete" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             else
@@ -2695,6 +2695,13 @@ nsh() {
                     if [[ $op == ln ]]; then
                         last_item="$PWD/${ylist[$yfocus]%/}"
                         ln -s "$path/${ylist[$yfocus]}" "${last_item##*/}"
+                        update
+                        return
+                    elif [[ $op == cp ]]; then
+                        local f= && for f in "${selected[@]}"; do
+                            f="${f%/}" && f="${f/$PWD\//}"
+                            ln -s "$PWD/$f" "$path/$f"
+                        done
                         update
                         return
                     fi
