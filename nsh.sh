@@ -3903,12 +3903,12 @@ nsh() {
                 echo "${bookmarks[$i]%% *}   ${val/#$HOME\//$tilde\/}"
             done; for ((i=$((${#visited[@]}-1)); i>=0; i--)); do
                 echo "    ${visited[$i]}"
-            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut v Edit)" --searchable --key v 'echo \!edit')"
+            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut r Reload v Edit)" --searchable --key r 'echo \!reload' --key v 'echo \!edit')"
             if [[ $opened == yes ]]; then
                 disable_line_wrapping >&2
                 hide_cursor >&2
             fi
-            if [[ $i == \!edit ]]; then
+            if [[ $i == \!* ]]; then
                 echo "$i"
             elif [[ -n "$i" ]]; then
                 echo "${i#?}" | sed 's/^\ *//'
@@ -4610,7 +4610,10 @@ nsh() {
                     ;;
                 "'"|'"')
                     local addr="$(select_bookmark "$KEY")"
-                    if [[ "$addr" == \!edit ]]; then
+                    if [[ "$addr" == \!reload ]]; then
+                        load_bookmarks
+                        NEXT_KEY=\"
+                    elif [[ "$addr" == \!edit ]]; then
                         close_pane
                         "$NSH_DEFAULT_EDITOR" ~/.config/nsh/bookmarks
                         load_bookmarks
