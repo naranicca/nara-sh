@@ -1630,7 +1630,7 @@ nsh() {
             elif [[ $word_idx -eq 0 ]]; then
                 c="$NSH_COLOR_ERR"
                 type "$word" &>/dev/null && c="$NSH_COLOR_CMD"
-            elif [[ $word == */* || $word =~ \.[A-Za-z]+$ ]]; then
+            elif [[ $word == */* || $word =~ \.[A-Za-z]+$ ]] && [[ $word != http:* && $word != https:* ]]; then
                 wordbak="$word"
                 local d="${word%/*}" && [[ -n $d ]] && d+=/
                 local f="$NSH_COLOR_ERR${word##*/}"
