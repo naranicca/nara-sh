@@ -618,6 +618,7 @@ menu() {
         esac
         shift
     done <&1
+    [[ -z $footer && $search == on ]] && footer=+
     if [[ $(pipe_context) == \>* ]]; then
         local i=0
         local ahlen="${#accent_header}"
@@ -659,6 +660,7 @@ menu() {
         [[ $height -le $min_height ]] && height=$((min_height))
         [[ $height -gt $max_height ]] && height=$((max_height))
         [[ $height -gt 1 ]] && ((height--))
+        [[ -z $footer ]] && ((height++))
 
         [[ -n "$header" ]] && printf "\r\e[0m\e[K$header\n" >&2 && ((height--))
         [[ $lines -gt $height ]] && lines=$height
@@ -670,22 +672,25 @@ menu() {
         local i= && for ((i=$beg; i<$((beg+lines)); i++)); do
             local m="$cursor1" && [[ $i == $cur ]] && m="$cursor0"
             local c=0 && [[ $i == $cur ]] && c="$sel_color"
-            #printf '\r%s%b%s%b%*s\e[0m\n' "$m" "\e[${c}m" "${items[$i]}" "\e[${c}m" $COLUMNS ' ' >&2
+            local cr=$'\n' && [[ -z $footer && $i == $((beg+lines-1)) ]] && cr=
             if [[ $hscroll -lt 0 ]]; then
-                printf '\r%s%b%s\e[0m\e[K\n' "$m" "\e[${c}m" " ${items[$i]} " >&2
+                printf "\r%s%b%s\e[0m\e[K$cr" "$m" "\e[${c}m" " ${items[$i]} " >&2
             else
-                printf '\r%s%b%s\e[0m\e[K\n' "$m" "\e[${c}m" " ${items[$i]:$hscroll} " >&2
+                printf "\r%s%b%s\e[0m\e[K$cr" "$m" "\e[${c}m" " ${items[$i]:$hscroll} " >&2
             fi
         done
         [[ $1 == show ]] && return
-        [[ -z $footer || $footer == +* ]] && printf '\r\e[0;7m(%*s/%s)\e[0m\e[K' ${#cnt} $((cur+1)) $cnt >&2
-        [[ -n $footer && $search != /* ]] && printf "\e[0m\e[K${footer/#+/}\e[0m" >&2
+        if [[ -n $footer ]]; then
+            [[ -z $footer || $footer == +* ]] && printf '\r\e[0;7m(%*s/%s)\e[0m\e[K' ${#cnt} $((cur+1)) $cnt >&2
+            [[ -n $footer && $search != /* ]] && printf "\e[0m\e[K${footer/#+/}\e[0m" >&2
+        fi
         [[ $search == /* ]] && printf "\e[37;41m\e[K$search\e[0m" >&2
         [[ $1 == clear ]] && printf '\r\e[K' >&2 && toprow=
         if [[ -z $toprow ]]; then
             get_cursor_pos < /dev/tty
             [[ -n $header ]] && ((lines++))
             toprow=$((ROW-lines))
+            [[ -z $footer ]] && ((toprow++))
             move_cursor $toprow >&2
         fi
     }
