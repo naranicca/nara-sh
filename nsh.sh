@@ -1345,7 +1345,7 @@ play2048() {
 # main function
 ############################################################################
 nsh() {
-    local version='0.1.20221112'
+    local version='0.1.0'
     local nsh_mode=
     local subprompt=
     local INDENT=
