@@ -618,6 +618,7 @@ menu() {
         esac
         shift
     done <&1
+    [[ -z $footer && $search == on ]] && footer=+
     if [[ $(pipe_context) == \>* ]]; then
         local i=0
         local ahlen="${#accent_header}"
@@ -658,7 +659,8 @@ menu() {
         [[ $min_height == *% ]] && min_height=$((LINES*${min_height%?}/100))
         [[ $height -le $min_height ]] && height=$((min_height))
         [[ $height -gt $max_height ]] && height=$((max_height))
-        ((height--))
+        [[ $height -gt 1 ]] && ((height--))
+        [[ -z $footer ]] && ((height++))
 
         [[ -n "$header" ]] && printf "\r\e[0m\e[K$header\n" >&2 && ((height--))
         [[ $lines -gt $height ]] && lines=$height
@@ -670,22 +672,25 @@ menu() {
         local i= && for ((i=$beg; i<$((beg+lines)); i++)); do
             local m="$cursor1" && [[ $i == $cur ]] && m="$cursor0"
             local c=0 && [[ $i == $cur ]] && c="$sel_color"
-            #printf '\r%s%b%s%b%*s\e[0m\n' "$m" "\e[${c}m" "${items[$i]}" "\e[${c}m" $COLUMNS ' ' >&2
+            local cr=$'\n' && [[ -z $footer && $i == $((beg+lines-1)) ]] && cr=
             if [[ $hscroll -lt 0 ]]; then
-                printf '\r%s%b%s\e[0m\e[K\n' "$m" "\e[${c}m" " ${items[$i]} " >&2
+                printf "\r%s%b%s\e[0m\e[K$cr" "$m" "\e[${c}m" " ${items[$i]} " >&2
             else
-                printf '\r%s%b%s\e[0m\e[K\n' "$m" "\e[${c}m" " ${items[$i]:$hscroll} " >&2
+                printf "\r%s%b%s\e[0m\e[K$cr" "$m" "\e[${c}m" " ${items[$i]:$hscroll} " >&2
             fi
         done
         [[ $1 == show ]] && return
-        [[ -z $footer || $footer == +* ]] && printf '\r\e[0;7m(%*s/%s)\e[0m\e[K' ${#cnt} $((cur+1)) $cnt >&2
-        [[ -n $footer && $search != /* ]] && printf "\e[0m\e[K${footer/#+/}\e[0m" >&2
+        if [[ -n $footer ]]; then
+            [[ -z $footer || $footer == +* ]] && printf '\r\e[0;7m(%*s/%s)\e[0m\e[K' ${#cnt} $((cur+1)) $cnt >&2
+            [[ -n $footer && $search != /* ]] && printf "\e[0m\e[K${footer/#+/}\e[0m" >&2
+        fi
         [[ $search == /* ]] && printf "\e[37;41m\e[K$search\e[0m" >&2
         [[ $1 == clear ]] && printf '\r\e[K' >&2 && toprow=
         if [[ -z $toprow ]]; then
             get_cursor_pos < /dev/tty
             [[ -n $header ]] && ((lines++))
             toprow=$((ROW-lines))
+            [[ -z $footer ]] && ((toprow++))
             move_cursor $toprow >&2
         fi
     }
@@ -1340,7 +1345,7 @@ play2048() {
 # main function
 ############################################################################
 nsh() {
-    local version='0.1.20221112'
+    local version='0.1.0'
     local nsh_mode=
     local subprompt=
     local INDENT=
@@ -1514,7 +1519,7 @@ nsh() {
         if [[ $opened == yes ]]; then
             move_cursor 1
         else
-            local plain_ps="$(echo -e "$subprompt $STRING" | sed 's/\x1b\[[0-9;]\+m//g')"
+            local plain_ps="$(echo -e "$subprompt $INDENT$STRING" | sed 's/\x1b\[[0-9;]\+m//g')"
             local h_plain_ps=$(($(strlen "$plain_ps")/COLUMNS))
             if [[ $((row0+h_plain_ps)) -gt $LINES ]]; then
                 local i= && for ((i=0; i<$((LINES-row0-h_plain_ps)); i++)); do
@@ -2456,7 +2461,7 @@ nsh() {
             elif [[ $op == mv ]]; then
                 printf '\e[30;42m\e[K| Move to: %s\e[0m' "$(print_filename "$path")"
             else
-                printf '\e[30;42m\e[K| Symbolic link\e[0m'
+                printf '\e[30;42m\e[K| Make a Symbolic link of...\e[0m'
             fi
             dirs=()
             files=()
@@ -2509,7 +2514,7 @@ nsh() {
         draw_shortcut_yank() {
             move_cursor $LINES
             if [[ $op == cp ]]; then
-                draw_shortcut "p" "Paste " "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+                draw_shortcut "p" "Paste " "/" "Search" "I" "Mkdir " "L" "SymbolicLink" "~" "Home  " "//" "Root  " "'" "Jump  "
             elif [[ $op == mv ]]; then
                 draw_shortcut "p" "Paste " "D" "Delete" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             else
@@ -2695,6 +2700,13 @@ nsh() {
                     if [[ $op == ln ]]; then
                         last_item="$PWD/${ylist[$yfocus]%/}"
                         ln -s "$path/${ylist[$yfocus]}" "${last_item##*/}"
+                        update
+                        return
+                    elif [[ $op == cp ]]; then
+                        local f= && for f in "${selected[@]}"; do
+                            f="${f%/}" && f="${f/$PWD\//}"
+                            ln -s "$PWD/$f" "$path/$f"
+                        done
                         update
                         return
                     fi
@@ -2967,11 +2979,13 @@ nsh() {
                     searchword=${searchword%?}
                     ;;
                 $'\e'|$'\t'|$'\n')
-                    [[ -z "$cmd" || ${#list[@]} -eq 0 ]] && NEXT_KEY=$'\e' && break
-                    list_width=$((COLUMNS/2))
-                    side_info_idx=0
-                    update_side_info
-                    break
+                    if [[ $KEY == $'\e' || ${#list[@]} -gt 0 ]]; then
+                        [[ -z "$cmd" ]] && NEXT_KEY=$'\e' && break
+                        list_width=$((COLUMNS/2))
+                        side_info_idx=0
+                        update_side_info
+                        break
+                    fi
                     ;;
                 $'\e'*)
                     ;;
@@ -3423,7 +3437,7 @@ nsh() {
                     echo $KEY
                 fi
             elif [[ "$STRING" == git\ blame\ * ]]; then
-                eval "$STRING" | sed -e 's/\([^ ]\+ \)[^(]*/\1/' -e 's/\t/    /g' | menu -h $((LINES-1)) --popup --preview git_commit_preview --searchable --hscroll --footer "+ $(draw_shortcut l ScrollRight h ScrollLeft \/ Search Tab ViewCommit)" 1>/dev/null
+                local l="$(eval "$STRING" | sed -e 's/\([^ ]\+ \)[^(]*/\1/' -e 's/\t/    /g' | menu -h $((LINES-1)) --popup --preview git_commit_preview --searchable --hscroll --footer "+ $(draw_shortcut l ScrollRight h ScrollLeft \/ Search Tab ViewCommit)")"
             elif [[ "$STRING" == git\ remote\ add ]]; then
                 echo -en "$NSH_PROMPT Repository name: "
                 read_string 'upstream'
@@ -3534,6 +3548,10 @@ nsh() {
                         continue
                     fi
                 else
+                    if [[ -n $STRING && $cursor -eq ${#STRING} ]] && [[ -z $STRING_SUGGEST || $STRING_SUGGEST != $STRING* ]]; then
+                        STRING_SUGGEST="$(printf "%s\n" "${history[@]}" | grep "^${STRING//./\\.}" | tail -n 1)"
+                        print_prompt
+                    fi
                     get_key KEY
                     NEXT_KEY=
                 fi
@@ -3822,11 +3840,7 @@ nsh() {
                         fill_cand
                         ;;
                 esac
-                [[ -z "$NEXT_KEY" ]] && get_key -t 0.1 NEXT_KEY
-                [[ -z "$NEXT_KEY" && -n $STRING && $cursor -eq ${#STRING} ]] && if [[ -z $STRING_SUGGEST || $STRING_SUGGEST != $STRING* ]]; then
-                    STRING_SUGGEST="$(printf "%s\n" "${history[@]}" | grep "^${STRING//./\\.}" | tail -n 1)"
-                    print_prompt
-                fi
+                [[ -z $NEXT_KEY ]] && get_key -t 0.1 NEXT_KEY
             done
             INDENT=
             STRING=
@@ -3894,12 +3908,12 @@ nsh() {
                 echo "${bookmarks[$i]%% *}   ${val/#$HOME\//$tilde\/}"
             done; for ((i=$((${#visited[@]}-1)); i>=0; i--)); do
                 echo "    ${visited[$i]}"
-            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut v Edit)" --searchable --key v 'echo \!edit')"
+            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut r Reload v Edit)" --searchable --key r 'echo \!reload' --key v 'echo \!edit')"
             if [[ $opened == yes ]]; then
                 disable_line_wrapping >&2
                 hide_cursor >&2
             fi
-            if [[ $i == \!edit ]]; then
+            if [[ $i == \!* ]]; then
                 echo "$i"
             elif [[ -n "$i" ]]; then
                 echo "${i#?}" | sed 's/^\ *//'
@@ -4601,7 +4615,10 @@ nsh() {
                     ;;
                 "'"|'"')
                     local addr="$(select_bookmark "$KEY")"
-                    if [[ "$addr" == \!edit ]]; then
+                    if [[ "$addr" == \!reload ]]; then
+                        load_bookmarks
+                        NEXT_KEY=\"
+                    elif [[ "$addr" == \!edit ]]; then
                         close_pane
                         "$NSH_DEFAULT_EDITOR" ~/.config/nsh/bookmarks
                         load_bookmarks
