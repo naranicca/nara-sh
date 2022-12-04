@@ -3457,6 +3457,7 @@ nsh() {
             else
                 NSH_EXIT_CODE=0
                 local __temp="$STRING"
+                local __row=$(get_cursor_row)
 
                 enable_echo
                 local tbeg=$(get_timestamp)
@@ -3467,7 +3468,7 @@ nsh() {
                     set +m # ctrl-z does not work
                 fi
                 [[ -n $STRINGBUF ]] && STRING="$STRINGBUF"$'\n'"$STRING"
-                eval "$STRING 2>&1"$'\n'"$(echo NSH_EXIT_CODE=\$?)" 2>/dev/null
+                eval "$STRING 2>&1"$'\n'"$(echo NSH_EXIT_CODE=\$?)" #2>/dev/null
                 if [[ $? -ne 0 || -z "$__temp" ]]; then
                     if [[ -z $STRINGBUF ]]; then
                         move_cursor $row0 && echo -ne "$subprompt"
@@ -3476,6 +3477,9 @@ nsh() {
                         echo -ne "$NSH_PROMPT "
                         syntax_highlight "$STRING"
                         echo
+                    else
+                        move_cursor $__row
+                        echo -ne '\e[K'
                     fi
                     STRINGBUF="$STRING"
                     return
