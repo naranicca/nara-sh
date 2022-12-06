@@ -181,7 +181,7 @@ nshcp() {
     local idx=0
     local num_thread=$(($(get_num_cpu)*2))
     local pids=()
-    [[ $opened == yes ]] && move_cursor 2 && enable_line_wrapping && set +m && echo -e "$NSH_PROMPT nshcp $@\e[K"
+    set +m
     __worker() {
         local s="$1"
         local d="$2" && [[ -d "$d" ]] && d="$d/${s##*/}"
@@ -193,33 +193,27 @@ nshcp() {
                 local ssize=$(stat "$STAT_FSIZE_PARAM" "$s" 2>/dev/null)
                 local dsize=$(stat "$STAT_FSIZE_PARAM" "$d" 2>/dev/null)
                 local cmp= && $(command diff --brief "$s" "$d" &>/dev/null) && cmp=', same file'
-                #echo -e "$NSH_PROMPT "$'\e[4m'"${d/$HOME\//$tilde\/}"$'\e[0m'" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)\e[K"
-                echo -e "$NSH_PROMPT "$(print_filename "$d")" already exists ($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)\e[K"
                 while true; do
-                    local ans="$(menu --popup 'Overwrite' 'Overwrite all' 'Skip' 'Skip all' 'Rename' 'Cancel' --key o 'echo Overwrite' --key s 'echo Skip' --key r 'echo Rename' --footer "$(draw_shortcut o Overwrite s Skip r Rename)" --cursor $'\e[31;100m>' --sel-color '0;1;100')"
+                    dialog "$(print_filename "$d") already exists\n($(get_hsize $ssize) --> $(get_hsize $dsize)$cmp)" Overwrite Overwrite\ all Skip Skip\ all Rename Cancel
+                    local ans=$?
                     case "$ans" in
-                        'Overwrite')
-                            echo "    $s --> $(print_filename "$d")"
+                        0) ;;
+                        1) overwrite_all=yes;;
+                        #2) return;;
+                        3) skip_all=yes && return;;
+                        4)
+                            dialog --input "New name: " "${d##*/}"
+                            [[ -n $STRING ]] && d="${d%/*}/$STRING" || continue
                             ;;
-                        'Overwrite all') overwrite_all=yes;;
-                        #'Skip') return;;
-                        'Skip all') skip_all=yes && return;;
-                        'Rename')
-                            echo -en "$NSH_PROMPT New name: "
-                            read_string "${d##*/}"
-                            if [[ -z $STRING ]]; then
-                                echo '^C'
-                            else
-                                d="${d%/*}/$STRING"
-                                echo
-                            fi
-                            [[ $opened == yes ]] && hide_cursor
+                        5) cancel=yes; return;;
+                        *)
+                            dialog --notice "Skipped: $(print_filename "$d")"
+                            [[ $opened == yes ]] && sleep 1s
+                            return
                             ;;
-                        'Cancel') echo -e "$NSH_PROMPT Cancelled"; cancel=yes; return;;
-                        *) echo '    Skipped' && return;;
                     esac
-                    [[ $ans != Rename || ! -e "$d" ]] && break
-                    echo -e "$NSH_PROMPT Sorry, $(print_filename "$d") also exists."
+                    [[ $ans != 4 || ! -e "$d" ]] && break
+                    dialog "Sorry, $(print_filename "$d") also exists."
                 done
             fi
         fi
@@ -231,9 +225,7 @@ nshcp() {
     while [ $# -gt 1 ]; do
         [[ -z "$1" ]] && shift && continue
         if [[ $opened == yes ]]; then
-            echo -e "\r${op##* }: $(print_filename "$1") --> $(print_filename "$dst")\e[K"
-            printf '%*s' $COLUMNS ' ' | sed 's/./-/g'
-            echo -ne "\r"
+            dialog --notice "$(print_filename "$1")" # --> $(print_filename "$dst")"
         fi
         if [[ -e "$1" ]]; then
             if [[ -d "$1" ]]; then
@@ -243,7 +235,8 @@ nshcp() {
                 if [[ -d "$tmp" && $op == *cp ]]; then
                     local i= && for i in {1..99999}; do
                         if [[ ! -d "${tmp}_($i)" ]]; then
-                            echo -e "$NSH_PROMPT "$(print_filename "$tmp")" already exists. changed name --> $NSH_COLOR_DIR${tmp/#$HOME/$tilde}($i)\e[0m\e[K"
+                            tmp="$(print_filename "$tmp" | sed 's/\x1b\[[0-9;]\+m//g')"
+                            dialog "$tmp already exists.\nchanged name --> $tmp($i)"
                             eval "$op -r \"$1\" \"${tmp}($i)\""
                             break
                         fi
@@ -274,24 +267,21 @@ nshcp() {
                 __worker "$1" "$dst"
             fi
         else
-            echo "$1: No such file or directory\e[K"
+            dialog "$1: No such file or directory"
         fi
         [[ $cancel == yes ]] && break
         shift
     done
     unset __worker
     wait "${pids[@]}"
-    if [[ $opened == yes ]]; then
-        #dialog "Done"
-        show_cursor
-        echo -en "$NSH_PROMPT Done\e[K"
-        [[ "$PWD" != "$(command cd "$dst"; echo "$PWD")" ]] && echo -en "\n$NSH_PROMPT \007Jump to the destination ($(print_filename "$dst"))?\e[K (Y/n) "
-        get_key KEY
-        [[ $KEY == Y || $KEY == y ]] && command cd "$dst"
-        hide_cursor
-        disable_line_wrapping
-        set -m
+    [[ $cancel == yes ]] && cancel=Cancelled. || cancel=Done.
+    if [[ "$PWD" != "$(command cd "$dst"; echo "$PWD")" ]]; then
+        dialog "$cancel\nJump to the destination ($(print_filename "$dst"))?" Yes No
+        [[ $? == 0 ]] && command cd "$dst"
+    else
+        dialog "$cancel"
     fi
+    set -m
 }
 
 nshmv() {
@@ -1345,7 +1335,7 @@ play2048() {
 # main function
 ############################################################################
 nsh() {
-    local version='0.1.0'
+    local version='0.1.1'
     local nsh_mode=
     local subprompt=
     local INDENT=
@@ -1953,7 +1943,7 @@ nsh() {
         if [[ ${#selected[@]} -gt 0 ]]; then
             local size=0
             local i= && for ((i=0; i<${#list[@]}; i++)); do
-                [[ -n ${selected[$i]} ]] && size=$((size+${bytesizes[$i]}))
+                [[ -n ${selected[$i]} && -n ${bytesizes[$i]} ]] && size=$((size+${bytesizes[$i]}))
             done
             size="$(get_hsize $size)"
             echo -e "$NSH_COLOR_TOP${#selected[@]} selected | $size | \033[K\033[0m"
@@ -2052,14 +2042,18 @@ nsh() {
     }
     dialog() {
         local mode=
-        if [ $# -eq 1 ]; then
-            dialog "$@" " Ok "
-            return $?
-        elif [[ $1 == --input ]]; then
+        local redraw_on_exit=$opened
+        if [[ $1 == --input ]]; then
             mode=$1
             shift
+        elif [ $# -eq 1 ]; then
+            dialog "$@" " Ok "
+            return $?
         elif [[ $1 == --notice ]]; then
             mode=$1
+            shift
+        elif [[ $1 == --no-redraw-on-exit ]]; then
+            redraw_on_exit=no
             shift
         fi
         get_terminal_size
@@ -2068,9 +2062,11 @@ nsh() {
         local h=4
         local str=()
         local btn=()
+        local btnw=()
         local bidx=0
         local color="$NSH_COLOR_DLG"
         while IFS='\n' read line; do
+            line="$(sed 's/\x1b\[[0-9;]\+m//g' <<< "$line")"
             local len=${#line}
             if [ $len -gt $((COLUMNS-4)) ]; then
                 line="${line:0:$((COLUMNS-7))}..."
@@ -2083,42 +2079,68 @@ nsh() {
             ((h++))
         done < <(echo -e "$1")
         shift
-        local bw=0
+        local bw=0 && local bh=0
         while [ $# -gt 0 ]; do
             btn+=("$1")
+            btnw+=(${#1}+2)
             bw=$((bw+${#1}+2))
+            [[ $bw -gt $((COLUMNS-4)) ]] && bw=$((${#l}+2)) && ((bh++))
             shift
         done
-        [[ $((bw+4)) -gt $w ]] && w=$((bw+4))
-        local x=$(((COLUMNS-w)/2))
-        local y=$(((LINES-h)/2+1))
-        move_cursor "$y;$x"
-        printf "$color  %-*s\e[0m" "$w" ' '
-        ((y++))
-        local line= && for line in "${str[@]}"; do
+        if [[ $opened == yes ]]; then
+            h=$((h+bh))
+            [[ $bh -gt 0 ]] && bw=$((COLUMNS-4))
+            [[ $((bw+2)) -gt $w ]] && w=$((bw+2))
+            local x=$(((COLUMNS-w)/2))
+            local y=$(((LINES-h)/2+1))
             move_cursor "$y;$x"
-            printf "$color  %-*s\e[0m" "$w" "$line"
+            printf "$color  %-*s\e[0m" "$w" ' '
             ((y++))
-        done
-        move_cursor "$y;$x"
-        printf "$color  %-*s\e[0m" "$w" ' '
-        ((y++))
-        move_cursor "$y;$x"
-        printf "$color  %*s\e[0m" "$w" ' '
-        move_cursor "$((y+1));$x"
-        printf "$color  %-*s\e[0m" "$w" ' '
+            local line= && for line in "${str[@]}"; do
+                move_cursor "$y;$x"
+                printf "$color  %-*s\e[0m" "$w" "$line"
+                ((y++))
+            done
+            local i= && for ((i=0; i<$((3+bh)); i++)); do
+                move_cursor "$((y+i));$x"
+                printf "$color  %-*s\e[0m" "$w" ' '
+            done
+            ((y++))
+        else
+            echo -ne "$NSH_PROMPT ${str[0]}\e[K"
+            local i= && for ((i=1; i<${#str[@]}; i++)); do
+                echo -ne "\n    ${str[$i]}\e[K"
+            done
+            [[ $mode != --input ]] && echo
+            if [[ -z $mode ]]; then
+                [[ ${#btn[@]} -eq 1 ]] && return 0
+                i="$(menu --popup "${btn[@]}" --return-idx)"
+                return ${i:-255}
+            fi
+        fi
         if [[ $mode == --input ]]; then
-            move_cursor "$y;$((x+1))"
-            printf "\e[0m%*s\e[0m" $((w-2)) ' '
-            move_cursor "$y;$((x+1))"
-            read_string
-            hide_cursor
+            if [[ $opened == yes ]]; then
+                move_cursor "$y;$((x+2))"
+                printf "\e[0m%*s\e[0m" $((w-2)) ' '
+                move_cursor "$y;$((x+2))"
+                read_string "${btn[0]}"
+                hide_cursor
+                [[ $redraw_on_exit == yes ]] && redraw
+            else
+                read_string "${btn[0]}"
+                echo
+            fi
         elif [[ $mode == --notice ]]; then
             :
         else
             draw_buttons() {
-                move_cursor "$y;$((x+w-bw))"
+                local j=$y && local r=0
+                move_cursor "$j;$((x+w-bw))"
                 local i= && for ((i=0; i<${#btn[@]}; i++)); do
+                    r=$((r+${btnw[$i]}))
+                    if [[ $r -gt $((COLUMNS-2)) ]]; then
+                        ((j++)) && move_cursor "$j;$((x+w-bw))" && r=0
+                    fi
                     if [ $i -eq $bidx ]; then
                         if [[ $1 == bold ]]; then
                             printf "\e[30;44m%s\e[0m" "[${btn[$i]}]"
@@ -2138,6 +2160,7 @@ nsh() {
                 get_key KEY
                 case $KEY in
                     $'\e')
+                        [[ $redraw_on_exit == yes ]] && redraw
                         return 255
                         ;;
                     $'\t'|'j'|'l')
@@ -2154,6 +2177,7 @@ nsh() {
                         ;;
                     $'\n'|' ')
                         draw_buttons bold
+                        [[ $redraw_on_exit == yes ]] && redraw
                         return $bidx
                         ;;
                 esac
@@ -2526,7 +2550,6 @@ nsh() {
                 selected[$focus]="$PWD/${list[$focus]}"
             else
                 dialog "No files or directories are selected."
-                redraw
                 return
             fi
         fi
@@ -2674,6 +2697,7 @@ nsh() {
                             nshcp "${selected[@]/#$PWD\//}" "$path"
                         fi
                         #command cd "$path"
+                        focus=$focus_bak
                         last_item="$path/${list[$focus]}"
                         update
                         return
@@ -2683,9 +2707,9 @@ nsh() {
                     if [[ $op == cp || $op == mv ]]; then
                         if [[ $op == 'mv' ]]; then
                             if [[ ${#selected[@]} -eq 1 ]]; then
-                                dialog "Delete ${selected[@]/#$HOME/$tilde}?" " Yes " " No "
+                                dialog --no-redraw-on-exit "Delete ${selected[@]/#$HOME/$tilde}?" " Yes " " No "
                             else
-                                dialog "Delete ${#selected[@]} files?" " Yes " " No "
+                                dialog --no-redraw-on-exit "Delete ${#selected[@]} files?" " Yes " " No "
                             fi
                             [[ $? -eq 0 ]] && local f= && for f in "${selected[@]}"; do
                                 rm -rf "$f"
@@ -4155,10 +4179,18 @@ nsh() {
                             fi
                             ;;
                         a|add|'add files')
-                            dialog "add files?\n$sel" && subshell "git add$sel"
+                            if [[ ${#selected[@]} -eq 1 ]]; then
+                                dialog "add$sel to repo?" && subshell "git add$sel"
+                            else
+                                dialog "add ${#selected[@]} files to repo?" && subshell "git add$sel"
+                            fi
                             ;;
                         d|delete|rm|'delete files')
-                            dialog "delete files?\n$sel" && subshell "git rm$sel"
+                            if [[ ${#selected[@]} -eq 1 ]]; then
+                                dialog "delete$sel from repo?" && subshell "git rm$sel"
+                            else
+                                dialog "delete ${#selected[@]} files from repo?" && subshell "git rm$sel"
+                            fi
                             ;;
                         s|'show modified files only')
                             git_mode=1
@@ -4252,7 +4284,6 @@ nsh() {
                             update
                         else
                             [[ $implicit -ne 0 ]] && selected=()
-                            redraw
                         fi
                     fi
                     ;;
@@ -4278,7 +4309,6 @@ nsh() {
                             if [[ -n $STRING && "$f" != "$STRING" ]]; then
                                 if [[ -e "$STRING" ]]; then
                                     dialog "$STRING\nalready exists"
-                                    redraw
                                 else
                                     command mv "$f" "$STRING"
                                     last_item="$PWD/$STRING"
@@ -4294,9 +4324,7 @@ nsh() {
                     ;;
                 I) # make a directory or a file
                     dialog --input 'Make a directory or a file'
-                    if [[ -z $STRING ]]; then
-                        redraw
-                    else
+                    if [[ -n $STRING ]]; then
                         if [[ $STRING == */ ]]; then
                             local err="$(mkdir "$STRING" 2>&1)"
                         else
@@ -4322,8 +4350,6 @@ nsh() {
                             lssort=-t
                         elif [[ $__x == 2 ]]; then
                             lssort=-S
-                        else
-                            redraw
                         fi
                         [[ "$lssort" != "$__y" ]] && update
                     fi
@@ -4607,7 +4633,6 @@ nsh() {
                     else
                         dialog "This KEY cannot be used for bookmarks"
                     fi
-                    redraw
                     ;;
                 "'"|'"')
                     local addr="$(select_bookmark "$KEY")"
