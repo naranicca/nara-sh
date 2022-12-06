@@ -2251,7 +2251,6 @@ nsh() {
             fi
         done
 
-        clear_screen
         update_git_stat
         redraw
         update_side_info
@@ -3912,7 +3911,7 @@ nsh() {
                 echo "${bookmarks[$i]%% *}   ${val/#$HOME\//$tilde\/}"
             done; for ((i=$((${#visited[@]}-1)); i>=0; i--)); do
                 echo "    ${visited[$i]}"
-            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut r Reload v Edit)" --searchable --key r 'echo \!reload' --key v 'echo \!edit')"
+            done) | menu -h $max_lines --popup --header 'Key  Address' --footer "$(draw_shortcut / Search r Reload v Edit)" --searchable --key r 'echo \!reload' --key v 'echo \!edit')"
             if [[ $opened == yes ]]; then
                 disable_line_wrapping >&2
                 hide_cursor >&2
@@ -4182,7 +4181,6 @@ nsh() {
                             if [ $focus -ne 0 ]; then
                                 focus=0
                                 y=0
-                                clear_screen
                                 redraw
                             fi
                             ;;
@@ -4204,10 +4202,7 @@ nsh() {
                     ;;
                 'G'|$'\e[4~'|$'\e[F')
                     focus=$((${#list[@]}-1))
-                    if [ $((y+max_lines)) -lt ${#list[@]} ]; then
-                        y=$((${#list[@]}-max_lines))
-                        clear_screen
-                    fi
+                    [[ $((y+max_lines)) -lt ${#list[@]} ]] && y=$((${#list[@]}-max_lines))
                     redraw
                     ;;
                 'h'|$'\e[D')
@@ -4256,10 +4251,7 @@ nsh() {
                             done
                             update
                         else
-                            if [ $implicit -ne 0 ]; then
-                                selected=()
-                            fi
-                            clear_screen
+                            [[ $implicit -ne 0 ]] && selected=()
                             redraw
                         fi
                     fi
@@ -4582,7 +4574,7 @@ nsh() {
                 ';')
                     last_item="$PWD/${list[$focus]}"
                     move_cursor 2 >&2
-                    STRING="$(printf '%s\n' "${history[@]}" | menu -r -h $max_lines --popup -i 9999 --key ' l' 'echo "$1 "' --searchable)"
+                    STRING="$(printf '%s\n' "${history[@]}" | menu -r -h $max_lines --popup -i 9999 --key ' l' 'echo "$1 "' --searchable --footer "+ $(draw_shortcut / Search)")"
                     disable_line_wrapping >&2
                     hide_cursor >&2
                     if [ -n "$STRING" ]; then
