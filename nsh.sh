@@ -155,6 +155,16 @@ strlen() {
     echo $(((nbyte-nchar)/2+nchar))
 }
 
+strip_escape() {
+    if [[ $# -eq 0 ]]; then
+        while read line; do
+            strip_escape "$line"
+        done
+    else
+        sed 's/\x1b\[[0-9;]*[mK]//g' <<< "$@"
+    fi
+}
+
 get_num_cpu() {
     (grep 'physical id' /proc/cpuinfo 2>/dev/null | wc -l 2>/dev/null) || echo 1
 }
@@ -208,7 +218,7 @@ nshcp() {
                         5) cancel=yes; return;;
                         *)
                             dialog --notice "Skipped: $(print_filename "$d")"
-                            [[ $opened == yes ]] && sleep 1s
+                            [[ $opened == yes ]] && sleep 1
                             return
                             ;;
                     esac
@@ -235,7 +245,7 @@ nshcp() {
                 if [[ -d "$tmp" && $op == *cp ]]; then
                     local i= && for i in {1..99999}; do
                         if [[ ! -d "${tmp}_($i)" ]]; then
-                            tmp="$(print_filename "$tmp" | sed 's/\x1b\[[0-9;]\+m//g')"
+                            tmp="$(strp_escape "$tmp")"
                             dialog "$tmp already exists.\nchanged name --> $tmp($i)"
                             eval "$op -r \"$1\" \"${tmp}($i)\""
                             break
@@ -630,7 +640,7 @@ menu() {
     [[ $cur -lt 0 ]] && cur=0
     [[ $header == - ]] && header=" ${items[0]}" && items=("${items[@]:1}")
 
-    local cursor1="$(echo "$cursor0" | sed -e 's/\x1b\[[0-9;]*[mK]//g' -e 's/./ /g')"
+    local cursor1="$(strip_escape "$cursor0" | sed 's/./ /g')"
     [[ -n $header ]] && header="$cursor1$header"
     local ret=
     local beg=0
@@ -1003,11 +1013,11 @@ nshgrep() {
     [[ $__grep_whole_word == ON ]] && __param+=' -w '
     [[ $__grep_results == 'FIRST MATCH' ]] && __param+=' -m 1 '
     grep_preview() {
-        local f="$(echo -e "$1" | sed 's/\x1b\[[0-9;]*[mK]//g')"
+        local f="$(strip_escape "$1")"
         local opt="${f#*:}"
         vi -s <(echo ":${opt%%:*}"; echo -n "V") "${f%%:*}"
     }
-    f="$(grep -IHrn --color=always $__param "$__grep_prev" . 2>/dev/null | sed -e 's/\x1b\[[0]*m/\x1b\[37m/g' -e 's/\r//g' | menu --searchable --sel-color 7 --preview grep_preview --footer '+ \e[7m / \e[0m Search \e[7mTAB\e[0m Preview \e[7m z \e[0m Zoom' | sed 's/\x1b\[[0-9;]*[mK]//g')"
+    f="$(grep -IHrn --color=always $__param "$__grep_prev" . 2>/dev/null | sed -e 's/\x1b\[[0]*m/\x1b\[37m/g' -e 's/\r//g' | menu --searchable --sel-color 7 --preview grep_preview --footer '+ \e[7m / \e[0m Search \e[7mTAB\e[0m Preview \e[7m z \e[0m Zoom' | strip_escape)"
     if [[ -n "$f" ]]; then
         if [[ "$NSH_DEFAULT_EDITOR" == vi || "$NSH_DEFAULT_EDITOR" == vim ]]; then
             opt="${f#*:}"
@@ -1509,7 +1519,7 @@ nsh() {
         if [[ $opened == yes ]]; then
             move_cursor 1
         else
-            local plain_ps="$(echo -e "$subprompt $INDENT$STRING" | sed 's/\x1b\[[0-9;]\+m//g')"
+            local plain_ps="$(strip_escape "$subprompt $INDENT$STRING")"
             local h_plain_ps=$(($(strlen "$plain_ps")/COLUMNS))
             if [[ $((row0+h_plain_ps)) -gt $LINES ]]; then
                 local i= && for ((i=0; i<$((LINES-row0-h_plain_ps)); i++)); do
@@ -2066,7 +2076,7 @@ nsh() {
         local bidx=0
         local color="$NSH_COLOR_DLG"
         while IFS='\n' read line; do
-            line="$(sed 's/\x1b\[[0-9;]\+m//g' <<< "$line")"
+            line="$(strip_escape "$line")"
             local len=${#line}
             if [ $len -gt $((COLUMNS-4)) ]; then
                 line="${line:0:$((COLUMNS-7))}..."
@@ -3370,7 +3380,7 @@ nsh() {
                 else
                     STRING="$(printf '%s\n' "${history[@]}" | menu -r --popup -i 9999 --key $'\b\177' "echo \"\$1 \"$'\\b'" --key ' l'$'\e[C' 'echo "$1 "' --searchable --footer "$f")"
                 fi
-                STRING="$(echo "$STRING" | sed 's/\x1b\[[0-9;]\+m//g')"
+                STRING="$(strip_escape "$STRING")"
                 [[ -z "$STRING" ]] && STRING="$tmp"
                 [[ "$STRING" != "$tmp" && "$STRING" != *\  && $STRING != *$'\b' ]] && NEXT_KEY=$'\n'
                 [[ $STRING == *$'\b' ]] && STRING="${STRING%? *}"
@@ -4500,7 +4510,7 @@ nsh() {
                                             local ln="${list2[$((sel0-1))]}"
                                             local added=0
                                             if [[ "$ln" == $'\e[33m'* ]]; then
-                                                ln="$(echo "$ln" | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/^[ ]*//')"
+                                                ln="$(strip_escape "$ln" | sed 's/^[ ]*//')"
                                                 ln="${ln%% *}"
                                             else
                                                 ln=0
@@ -4513,7 +4523,7 @@ nsh() {
                                                     ((ln++))
                                                     ((added++))
                                                 else
-                                                    l="$(echo "$l" | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/^[ ]*//')"
+                                                    l="$(strip_escape "$l" | sed 's/^[ ]*//')"
                                                     l="${l%% *}"
                                                     sed -i "$((l+added))d" "$fname"
                                                     ((added--))
