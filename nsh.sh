@@ -234,9 +234,7 @@ nshcp() {
     }
     while [ $# -gt 1 ]; do
         [[ -z "$1" ]] && shift && continue
-        if [[ $opened == yes ]]; then
-            dialog --notice "$(print_filename "$1")" # --> $(print_filename "$dst")"
-        fi
+        [[ $opened == yes ]] && dialog --notice "${op#* }: $(print_filename "$1")" # --> $(print_filename "$dst")"
         if [[ -e "$1" ]]; then
             if [[ -d "$1" ]]; then
                 local src="$(command cd "$1"; pwd -P)"
@@ -245,8 +243,9 @@ nshcp() {
                 if [[ -d "$tmp" && $op == *cp ]]; then
                     local i= && for i in {1..99999}; do
                         if [[ ! -d "${tmp}_($i)" ]]; then
-                            tmp="$(strp_escape "$tmp")"
+                            tmp="$(strip_escape "$(print_filename "$tmp")")"
                             dialog "$tmp already exists.\nchanged name --> $tmp($i)"
+                            [[ $opened == yes ]] && dialog --notice "${op#* }: $tmp"
                             eval "$op -r \"$1\" \"${tmp}($i)\""
                             break
                         fi
@@ -679,6 +678,7 @@ menu() {
                 printf "\r%s%b%s\e[0m\e[K$cr" "$m" "\e[${c}m" " ${items[$i]:$hscroll} " >&2
             fi
         done
+        [[ $1 == show && -z $footer ]] && echo >&2
         [[ $1 == show ]] && return
         if [[ -n $footer ]]; then
             [[ -z $footer || $footer == +* ]] && printf '\r\e[0;7m(%*s/%s)\e[0m\e[K' ${#cnt} $((cur+1)) $cnt >&2
@@ -2056,15 +2056,16 @@ nsh() {
         if [[ $1 == --input ]]; then
             mode=$1
             shift
-        elif [ $# -eq 1 ]; then
-            dialog "$@" " Ok "
-            return $?
         elif [[ $1 == --notice ]]; then
             mode=$1
             shift
         elif [[ $1 == --no-redraw-on-exit ]]; then
             redraw_on_exit=no
             shift
+        fi
+        if [[ $# -eq 1 && $mode != --input ]]; then
+            dialog $mode "$@" " Ok "
+            return $?
         fi
         get_terminal_size
 
@@ -3883,6 +3884,7 @@ nsh() {
             STRING=
             STRING_SUGGEST=
             subprompt=
+            [[ $secret -ne 0 ]] && break
         done
 
         hide_cursor
@@ -4213,6 +4215,7 @@ nsh() {
                             git_show_info() {
                                 git remote -v
                                 git status
+                                get_key
                             }
                             subshell --secret 'git_show_info'
                             ;;
