@@ -35,7 +35,7 @@ NSH_COLOR_DLG=$'\e[48;5;250;30m'
 NSH_COLOR_BKG='48;5;239'
 
 # menu
-NSH_MENU_DEFAULT_CURSOR=$'\e[31;40m> '
+NSH_MENU_DEFAULT_CURSOR=$'\e[31;40m>'
 NSH_MENU_DEFAULT_SEL_COLOR='32;40'
 
 # aliases
@@ -641,10 +641,10 @@ menu() {
         done
     fi
     [[ $cur -lt 0 ]] && cur=0
-    [[ $header == - ]] && header=" ${items[0]}" && items=("${items[@]:1}")
 
     local cursor1="$(strip_escape "$cursor0" | sed 's/./ /g')"
-    [[ -n $header ]] && header="$cursor1$header"
+    [[ $header == - ]] && header="$cursor1 ${items[0]}" && items=("${items[@]:1}")
+
     local ret=
     local beg=0
     local cnt=${#items[@]}
@@ -674,13 +674,14 @@ menu() {
         #[[ $1 == show ]] && beg=0 && lines=${#items[@]}
         local i= && for ((i=$beg; i<$((beg+lines)); i++)); do
             local m="$cursor1" && [[ $i == $cur ]] && m="$cursor0"
-            local c=0 && [[ $i == $cur ]] && c="$sel_color"
-            local cr=$'\n' && [[ -z $footer && $i == $((beg+lines-1)) ]] && cr=
-            if [[ $hscroll -lt 0 ]]; then
-                printf "\r%s%b%s\e[0m\e[K$cr" "$m" "\e[${c}m" " ${items[$i]} " >&2
-            else
-                printf "\r%s%b%s\e[0m\e[K$cr" "$m" "\e[${c}m" " ${items[$i]:$hscroll} " >&2
+            local c=0
+            local line="${items[$i]}" && [[ $hscroll -gt 0 ]] && line="${line:$hscroll}"
+            if [[ $i == $cur ]]; then
+                c="$sel_color"
+                [[ -n $sel_color && $sel_color != 7 ]] && line="$(strip_escape "$line")"
             fi
+            local cr=$'\n' && [[ -z $footer && $i == $((beg+lines-1)) ]] && cr=
+            printf "\r%s %b%s\e[0m \e[K$cr" "$m" "\e[0;${c}m" "$line" >&2
         done
         [[ $1 == show && -z $footer ]] && echo >&2
         [[ $1 == show ]] && return
@@ -705,14 +706,14 @@ menu() {
 
         get_key KEY < /dev/tty
         if [[ $KEY != $'\e' && "$keys" == *$KEY* ]]; then # cannot override ESC
-            ret="$cur" && [[ $return_idx -eq 0 ]] && ret="${items[$ret]}"
+            ret="$cur" && [[ $return_idx -eq 0 ]] && ret="$(strip_escape "${items[$ret]}")"
             local i= && for ((i=0; i<${#return_key[@]}; i++)); do
                 if [[ "${return_key[$i]}" == *"$KEY"* ]]; then
                     if [[ $(type -t "${return_fn[$i]}") == function ]]; then
                         "${return_fn[$i]}" "$ret"
                     else
                         eval "TEMPFUNC() { ${return_fn[$i]}; }"
-                        TEMPFUNC "$ret"
+                        TEMPFUNC "$ret" "$cur"
                     fi
                     break
                 fi
@@ -759,7 +760,7 @@ menu() {
                 ;;
             $'\t')
                 if [ -n "$preview" ]; then
-                    "$preview" "${items[$cur]}" >&2 < /dev/tty
+                    "$preview" "$(strip_escape "${items[$cur]}")" >&2 < /dev/tty
                     hide_cursor >&2
                 fi
                 ;;
@@ -827,7 +828,7 @@ menu() {
         show_cursor >&2
     fi
 
-    [[ -n "$ret" ]] && echo "$ret"
+    [[ -n "$ret" ]] && strip_escape "$ret"
 }
 
 nshls() {
@@ -966,7 +967,7 @@ disk() {
         local ret="$(for ((i=0; i<${#files[@]}; i++)); do
             local p='            ' && [[ ${sideinfo[$i]} -ge 0 ]] && p="[${bars[$(((${sideinfo[$i]}*100/$total+5)/10))]}]"
             printf "%8s %s\n" "$(get_hsize ${sideinfo[$i]})" "$p $(put_file_color "${files[$i]}")${files[$i]}"
-        done | menu --popup --return-idx --sel-color 7 --key 'h' '[[ $(pwd) != / ]] && echo 0' --key 'o' 'echo cd \"${files[$1]}\"' --key 'x' 'echo quit here' --footer "+ $(draw_shortcut o Open z Zoom x QuitHere q Quit)")"
+        done | menu --popup --return-idx --cursor '' --sel-color 7 --key 'h' '[[ $(pwd) != / ]] && echo 0' --key 'o' 'echo cd \"${files[$1]}\"' --key 'x' 'echo quit here' --footer "+ $(draw_shortcut o Open z Zoom x QuitHere q Quit)")"
         move_cursor $(($(get_cursor_row)-1)) && printf '\e[K'
         [[ -z "$ret" ]] && break
         [[ $ret == cd\ * ]] && eval "$ret" && cur="$(pwd)" && break
@@ -1021,7 +1022,7 @@ nshgrep() {
         local opt="${f#*:}"
         vi -s <(echo ":${opt%%:*}"; echo -n "V") "${f%%:*}"
     }
-    f="$(grep -IHrn --color=always $__param "$__grep_prev" . 2>/dev/null | sed -e 's/\x1b\[[0]*m/\x1b\[37m/g' -e 's/\r//g' | menu --searchable --sel-color 7 --preview grep_preview --footer '+ \e[7m / \e[0m Search \e[7mTAB\e[0m Preview \e[7m z \e[0m Zoom' | strip_escape)"
+    f="$(grep -IHrn --color=always $__param "$__grep_prev" . 2>/dev/null | sed -e 's/\x1b\[[0]*m/\x1b\[37m/g' -e 's/\r//g' | menu --searchable --cursor '' --sel-color 7 --preview grep_preview --footer '+ \e[7m / \e[0m Search \e[7mTAB\e[0m Preview \e[7m z \e[0m Zoom' | strip_escape)"
     if [[ -n "$f" ]]; then
         if [[ "$NSH_DEFAULT_EDITOR" == vi || "$NSH_DEFAULT_EDITOR" == vim ]]; then
             opt="${f#*:}"
@@ -1035,48 +1036,48 @@ nshgrep() {
 }
 
 git_root() {
-    git rev-parse --show-toplevel 2>/dev/null
+    command git rev-parse --show-toplevel 2>/dev/null
 }
 
 git_branch_name() {
-    git rev-parse --abbrev-ref HEAD 2>/dev/null
+    command git rev-parse --abbrev-ref HEAD 2>/dev/null
 }
 
 git_branch() {
     while IFS=$'\n' read line; do
         [[ "$line" != \(HEAD\ *detached\ * ]] && echo "$line"
-    done < <(LANGUAGE=en_US.UTF-8 git branch 2>/dev/null | sed 's/[ *]*//')
+    done < <(LANGUAGE=en_US.UTF-8 command git branch 2>/dev/null | sed 's/[ *]*//')
     #git branch -r 2>/dev/null | sed -n '/[ ]*origin\//p' | sed -n '/ -> /!p' | sed 's/^[ *]*//'
     #git branch -r 2>/dev/null | sed -n '/[ ]*origin\//!p' | sed -n '/ -> /!p' | sed 's/^[ *]*//'
-    local remote= && for remote in $(git remote 2>/dev/null); do
+    local remote= && for remote in $(command git remote 2>/dev/null); do
         echo "$remote"
-        git branch -r 2>/dev/null | sed 's/^[ *]*//' | grep "^$remote/" | sed -n '/ -> /!p'
+        command git branch -r 2>/dev/null | sed 's/^[ *]*//' | grep "^$remote/" | sed -n '/ -> /!p'
     done
 }
 
 git_parent() {
     local n="$(git_branch_name)"
-    [[ -n "$n" ]] && git show-branch | sed 's/\].*//' | grep '\*' | grep -v "$n" -m 1 | sed -e 's/^[^[]*\[//' -e 's/[\^~].*$//'
+    [[ -n "$n" ]] && command git show-branch | sed 's/\].*//' | grep '\*' | grep -v "$n" -m 1 | sed -e 's/^[^[]*\[//' -e 's/[\^~].*$//'
 }
 
 git_commit_preview() {
-    local c="${1%% *}" && c="${c/#^/}"
+    local c="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$1")" && c="${c%% *}" && c="${c/#^/}"
     local s=$(printf '%*s' $COLUMNS ' ') && s="${s//\ /-}"
-    (git log --color=always -n 1 $c; echo $s; git diff --color=always --stat $c~ $c 2>/dev/null || git diff --color=always --stat $c; echo $s; git diff --color=always $c~ $c 2>/dev/null || git diff --color=always $c) | less -r
+    (command git log --color=always -n 1 $c; echo $s; command git diff --color=always --stat $c~ $c 2>/dev/null || command git diff --color=always --stat $c; echo $s; (command git diff $c~ $c 2>/dev/null || command git diff $c) | git_diff_formatter) | less -r
 }
 
 git_fix_conflicts() {
     local files=()
     while read line; do
         files+=("$line")
-    done < <(LANGUAGE=en_US.UTF-8 git status 2>/dev/null | grep 'both modified:' | sed 's/.*modified:[ ]*//')
+    done < <(LANGUAGE=en_US.UTF-8 command git status 2>/dev/null | grep 'both modified:' | sed 's/.*modified:[ ]*//')
     [[ ${#files[@]} -eq 0 ]] && return
 
     [[ $# -gt 0 ]] && echo "$@"
     while true; do
         idx="$(for f in "${files[@]}"; do
             [[ $(grep -c '^<\+ HEAD' "$f" 2>/dev/null) -gt 0 ]] && echo "@@$f" || echo "$f"
-        done | menu --popup --sel-color 4 --cursor $'\e[31;100m>' --sel-color '0;1;100' --return-idx --accent "@@" 31 32)"
+        done | menu --popup --return-idx --accent "@@" 31 32)"
         [[ -z "$idx" ]] && break
         $NSH_DEFAULT_EDITOR "${files[$idx]}"
         local cont=false
@@ -1088,12 +1089,12 @@ git_fix_conflicts() {
             echo
             if [[ $KEY == Y || $KEY == y ]]; then
                 for f in "${files[@]}"; do
-                    git add "$f"
+                    command git add "$f"
                 done
-                if [[ $(LANGUAGE=en_US.UTF-8 git status 2>/dev/null | grep -q 'rebase in progress') -eq 0 ]]; then
-                    git rebase --continue && break
+                if [[ $(LANGUAGE=en_US.UTF-8 command git status 2>/dev/null | grep -q 'rebase in progress') -eq 0 ]]; then
+                    command git rebase --continue && break
                 else
-                    git commit
+                    command git commit
                     break
                 fi
             fi
@@ -1102,38 +1103,308 @@ git_fix_conflicts() {
 }
 
 git_log() {
-    if [[ "$@" == *\ -* ]]; then
-        $@
+    local header=
+    local mopt=
+    if [[ $1 == --header ]]; then
+        header="$2"
+        shift; shift
+    elif [[ $1 == --return-idx ]]; then
+        mopt="$1"
+        shift
+    fi
+    if [[ " $@" == *\ -* ]]; then
+        command git log $@
     else
-        local commit
-        local author
-        local mopt= && [[ $1 == --return-idx ]] && mopt="$1" && shift
-        gather_commit() {
-            while read line; do
-                if [[ $line == commit\ * ]]; then
-                    commit="${line##* }"
-                    read line && [[ $line == Merge:* ]] && read line
-                    if [[ $line == Author:* ]]; then
-                        author="${line#* }" && author="${author%% *}"
-                        read line && if [[ $line == Date:* ]]; then
-                            read line
-                            read line
-                            printf "%s \e[33m%s" "${commit:0:12}" "$line"
-                            while read line; do
-                                [[ -z $line ]] && break
-                                echo -n "$line"
-                            done
-                            printf "\e[37m (by $author)\n"
-                        fi
+        local gopt=
+        local commit="$(command git status | grep 'HEAD detached' | sed 's/.*\ //')"
+        if [[ -n $commit ]]; then
+            extra="$(command git branch --remote --contains | head -n 1 | sed -e 's/.*->\ //' -e 's/^[ ]*origin\///')"
+            extra="command git log "$extra" --decorate --oneline "$@" | sed '/^'$commit' /q' | (head -n -1 2>/dev/null || sed -e '$ d') | sed 's/^/\ /';"
+        fi
+        while true; do
+            commit="$(eval "$extra command git log --decorate --color=always --oneline $gopt "$@" 2>/dev/null" | menu -r --footer "+ $(draw_shortcut TAB Preview ENTER Checkout \/ Search . Detail e Edit z Zoom)" --popup --preview git_commit_preview --searchable $mopt --key h 'echo' --key . 'echo !Detail' --key ev 'echo !edit $2' --header "$header")"
+            [[ -z $commit ]] && return 0
+            if [[ $commit == \!Detail ]]; then
+                [[ $gopt == *--graph* ]] && gopt= || gopt="$gopt --graph --pretty='format:%C(yellow)%h%Creset %C(blue)(%cr|%an)%Creset %s'"
+            elif [[ $commit == \!edit* ]]; then
+                nshgit_prompt --force 'edit commits'
+                commit="${commit#\!edit }"
+                nshgit_run rebase -i "@~$(($commit+1))"
+                return $?
+            else
+                commit="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$commit")" && commit="${commit%% *}"
+                echo -ne "$postfix\r$git_stat "; command git log --color=always -n 1 $commit | sed 's/^/|\ /' | sed '1 s/^| //'
+                str="$(menu --popup 'Checkout this commit' 'Roll back to this commit' 'Roll back but keep the changes' 'Edit commits')"
+                case $str in
+                Checkout*)
+                    nshgit_prompt --force "checkout $commit"
+                    nshgit_run checkout $commit
+                    return;;
+                Roll\ back\ to*)
+                    if dialog 'You will lose the commits. Continue?' OK Cancel; then
+                        nshgit_prompt --force "reset --hard $commit"
+                        nshgit_run reset --hard $commit
+                        return
+                    fi
+                    ;;
+                Roll*keep*)
+                    if dialog 'Roll back to this commit?\nYou can cancel rollback by run "git restore FILE" and git pull' OK Cancel; then
+                        nshgit_prompt --force "reset --soft $commit"
+                        nshgit_run reset --soft $commit && nshgit_run restore --staged .
+                        return
+                    fi
+                    ;;
+                Edit\ *)
+                    commit="$(command git log --oneline | grep -n "$commit ")" && commit="${commit%%:*}"
+                    nshgit_prompt --force edit last "$commit" commits
+                    nshgit_run rebase -i "@~$commit"
+                    ;;
+                esac
+            fi
+        done
+    fi
+}
+
+nshgit() {
+    local param="$1"
+    local op=("$@") && shift
+    local remote=()
+    local stat
+    if [[ -z $op ]]; then
+        IFS=$'\n' read -d "" -ra remote < <(command git remote -v | sed -e 's/\t/ (/g' -e 's/\(.*\)\ (\([^(]*\))/\2 \1)/' -e 's/^fetch/& from/' -e 's/^push/& to/')
+        [[ ${#remote[@]} -eq 0 ]] && return 1
+    fi
+    nshgit_prompt() {
+        [[ -n $param && $1 != --force ]] && return
+        [[ $1 == --force ]] && shift
+        [[ -n "$@" ]] && echo -e "$postfix\r$git_stat $@" || echo -e "$postfix\r$git_stat"
+    }
+    nshgit_run() {
+        command git "$@"
+        local ret=$? && [[ $ret -ne 0 ]] && echo -e "\e[31m[$ret returned]\e[0m"
+        return $ret
+    }
+    nshgit_strip_filename() {
+        sed -e 's/^[A-Z] //' -e 's/^[??] //' -e 's/^[ ]*//' -e 's/^"//' -e 's/"$//' <<< "$1"
+    }
+    nshgit_get_selected() {
+        op=() && local s= && for s in "${stat[@]}"; do
+            if [[ $s == \** ]]; then
+                s="$(strip_escape "${s#\* }")"
+                op+=("$(nshgit_strip_filename "$s")")
+            fi
+        done
+    }
+    while true; do
+        local postfix="$(printf '%*s' $COLUMNS a | sed 's/./-/g')"
+        update_git_stat
+        if [[ -z $op || $op == \!select* ]]; then
+            [[ $op != \!select* ]] && IFS=$'\n' read -d "" -ra stat < <(command git -c color.status=always status --short | sed -e 's/^[ ]*//')
+            local initial="${#stat[@]}" && [[ $op == \!select* ]] && initial="$((${op#*select }+1))"
+            local title=
+            [[ ${#stat[@]} -gt 0 ]] && title="${#stat[@]} file(s) to commit" && [[ "$(strip_escape ${stat[0]})" == \?\?* ]] && title="${#stat[@]} untracked files"
+            op="$(menu --popup "${stat[@]}" pull commit "${remote[@]}" log branch --initial $initial --key p 'echo pull' --key h 'echo push' --key c 'echo \!commit' --key b 'echo branch' --key u 'echo !revert' --key r 'echo !refresh' --key ' ' 'echo !select $2' --header "$(nshgit_prompt "$title")")"
+            [[ -z $op ]] && return
+            if [[ $op == \!select* ]]; then
+                op="${op#*select }"
+                if [[ $op -lt ${#stat[@]} ]]; then
+                    [[ ${stat[$op]} != \** ]] && stat[$op]="* ${stat[$op]}" || stat[$op]="${stat[$op]#\* }"
+                fi
+                op="!select $op" && continue
+            fi
+            [[ $op == \!refresh ]] && op= && continue
+            [[ $op == D\ * ]] && op="${op#D }" && nshgit_prompt --force "diff $op" && echo "$op was deleted" && op= && continue
+            [[ $op == \?\?\ * ]] && op=(add "$(nshgit_strip_filename "${op#\?\? }")")
+        fi
+        case "$op" in
+            add*)
+                op=("${op[@]:1}")
+                if [[ -n $param || $(menu --popup --header "$(nshgit_prompt --force "add $(print_filename "$op")")" OK Cancel) == OK ]]; then
+                    nshgit_run add "${op[@]}" && [[ $(menu --popup --header "$(nshgit_prompt --force Commit?)" OK Not\ now) == OK ]] && op=commit && continue
+                fi
+                ;;
+            pull)
+                nshgit_prompt pull from $(git_branch_name)
+                nshgit_run pull origin "$(git_branch_name)"
+                ;;
+            push|push\ to\ *)
+                local r=origin && [[ $op == push\ to\ * ]] && r="${op#push to }" && r="${r%% *}"
+                nshgit_prompt --force "push to $r/$(git_branch_name)"
+                if [[ $(LANGUAGE=en_US.UTF-8 command git status 2>/dev/null) == *modified* ]]; then
+                    op=
+                    dialog "You need to commit first." OK Cancel || continue
+                    nshgit_run commit "$(git_root)" || continue
+                fi
+                nshgit_run push "$r" "$(git_branch_name)" -f
+                ;;
+            fetch*)
+                local r=origin && [[ $op == fetch\ from\ * ]] && r="${op#fetch from }" && r="${r%% *}"
+                nshgit_prompt --force "fetch from $r"
+                nshgit_run fetch "$r"
+                ;;
+            \!commit)
+                nshgit_get_selected
+                op=(commit "${op[@]}")
+                continue
+                ;;
+            commit)
+                op=("${op[@]:1}")
+                nshgit_prompt commit "${op[@]}"
+                nshgit_run commit "${op:-.}"
+                ;;
+            log|log\ *)
+                op=("${op[@]:1}")
+                git_log --header "$(nshgit_prompt log ${op[@]})" "${op[@]}"
+                ;;
+            branch)
+                local branch="$((echo '+ Create a new branch'; git_branch) | menu --popup --searchable --key h 'echo' --key $'\t' 'echo !view $1' --key d 'echo !delete $1' --key + 'echo +' --key m 'echo !merge $1' --key r 'echo !rebase $1' --footer "$(draw_shortcut ENTER Checkout TAB View + Create d Delete m Merge r MoveTo)" --header "$(nshgit_prompt branch)")"
+                if [[ $branch == \+\ * ]]; then
+                    nshgit_prompt --force New branch
+                    dialog --input "Branch name: "
+                    [[ -z $STRING ]] && op=branch && continue
+                    nshgit_run checkout -b "$STRING"
+                elif [[ -n $branch && $branch != \!* ]]; then
+                    op="$(menu --popup --header "$(nshgit_prompt --force branch \'$branch\')" 'Checkout this branch' 'Merge this branch' 'Move the current branch on to this' 'Explore this branch' 'Delete this branch')"
+                    if [[ $op == Checkout* ]]; then
+                        nshgit_prompt --force "checkout $branch"
+                        nshgit_run checkout "${branch#origin\/}"
+                    elif [[ $op == Merge* ]]; then
+                        branch="!merge $branch"
+                    elif [[ $op == Move* ]]; then
+                        branch="!rebase $branch"
+                    elif [[ $op == Explore* ]]; then
+                        branch="!view $branch"
+                    elif [[ $op == Delete* ]]; then
+                        branch="!delete $branch"
+                    else
+                        op=branch; continue
                     fi
                 fi
-            done < <(eval "git log --follow "$@" 2>/dev/null")
-        }
-        commit="$(gather_commit "$@" | menu --header ' CommitID     Log' --footer "+ $(draw_shortcut TAB Preview ENTER Checkout \/ Search z Zoom)" --popup --sel-color 7 --preview git_commit_preview --searchable $mopt)"
-        commit="${commit%% *}"
-        [ -n "$commit" ] && echo "$commit"
-        return 0
-    fi
+                if [[ $branch == \!view* ]]; then
+                    branch="${branch#* }"
+                    [[ $branch == +\ * ]] && continue
+                    local path=
+                    while true; do
+                        local p="$((echo -ne "\r$postfix\r$git_stat "; comand git show --color=always "$branch:$path") | sed "s/.*\/$/$NSH_COLOR_DIR&\x1b\[0m/" | menu -r --popup --header - --key h 'echo ..' --footer "$(draw_shortcut c Checkout y Copy)" --key c 'echo !checkout $1' --key y 'echo !copy $1')"
+                        [[ -z $p ]] && break
+                        p="$(strip_escape "$p")"
+                        if [[ $p == \!* ]]; then
+                            if [[ $p == \!checkout\ * ]]; then
+                                nshgit_run checkout "$branch" -- "${p#*checkout }"
+                            else
+                                p="${p#*copy }" && [[ "$p" == */ ]] && dialog "Cannot copy a directory! Use Checkout instead" && continue
+                                local new_name="${p%/}"
+                                read_string "$new_name"
+                                [[ -z $STRING ]] && continue
+                                nshgit_run show "$branch:$path$p" >> "$STRING" && dialog "copied $p from $branch --> $STRING"
+                            fi
+                        elif [[ $p == .. ]]; then
+                            path="$(sed 's/[^/]*\/$//' <<< "$path")"
+                        elif [[ "$p" == */ ]]; then
+                            [[ -z $path ]] && path="$p" || path="$path$p"
+                        fi
+                    done
+                    op=branch && continue
+                elif [[ $branch == \!delete* ]]; then
+                    branch="${branch#* }"
+                    [[ $branch == +\ * ]] && continue
+                    if [[ $branch == origin/* ]]; then
+                        if [[ $(menu --popup --header "$(nshgit_prompt --force "This will completely delete $branch branch from the repository.")" OK Cancel) == OK ]]; then
+                            nshgit_run push origin --delete "${branch#*/}"
+                        fi
+                    else
+                        if [[ $(menu --popup --header "$(nshgit_prompt --force "This will delete $branch branch locally")" OK Cancel) == OK ]]; then
+                            nshgit_run branch -D "$branch"
+                        fi
+                    fi
+                    op=branch && continue
+                elif [[ $branch == \!merge* ]]; then
+                    branch="${branch#* }"
+                    [[ $branch == +\ * ]] && continue
+                    if [[ $(menu --popup --header "$(nshgit_prompt --force "Merge $branch?")" OK Cancel) == OK ]]; then
+                        nshgit_prompt "Merge $branch"
+                        nshgit_run merge $branch
+                    fi
+                elif [[ $branch == \!rebase* ]]; then
+                    branch="${branch#* }"
+                    if [[ -n "$(command git branch --list "$branch")" || -n "$(command git branch -r | sed 's/$/ /' | grep " $branch ")" ]]; then
+                        local p="$(git_parent)"
+                        local c="$(git_branch_name)"
+                        if [[ -n "$p" && "$p" != "$ranch" ]]; then
+                            dialog "It is recommended to use --onto option since this branch seems to be based on $p:\n  git rebase --onto $branch $p $c"
+                            nshgit_run rebase --onto "$branch" "$p" "$c"
+                        else
+                            nshgit_run rebase -i "$branch"
+                        fi
+                        [[ $? -ne 0 ]] && git_fix_conflicts "Conflicts were found. Fix them and commit the changes."
+                    fi
+                fi
+                ;;
+            \!revert)
+                op=("${op[@]:1}")
+                [[ -z $op ]] && nshgit_get_selected; [[ -z $op ]] && op=(all)
+                op="$(printf '%s, ' "${op[@]}")" && op="${op%, }"
+                if [[ $(menu --popup --header "$(nshgit_prompt --force revert $op?)" OK Cancel) == OK ]]; then
+                    nshgit_prompt revert $op
+                    local f= && for f in "${stat[@]}"; do
+                        f="$(strip_escape "$f")"
+                        if [[ $f == \*\ * ]]; then
+                            f="${f#\* }"
+                            if [[ $f == A\ * ]]; then
+                                nshgit reset "$(nshgit_strip_filename "$f")"
+                            elif [[ $f =~ ^[A-Z]\  ]]; then
+                                nshgit checkout -- "$(nshgit_strip_filename "$f")"
+                            else
+                                nshgit checkout -- .
+                                break
+                            fi
+                        fi
+                    done
+                fi
+                ;;
+            revert)
+                op=("${op[@]:1}")
+                local f && for f in "${op[@]}"; do
+                    nshgit checkout -- "$f"
+                done
+                ;;
+            blame)
+                op=("${op[@]:1}")
+                command git blame "${op[@]}" | sed -e 's/\([^ ]\+ \)[^(]*/\1/' -e 's/\t/    /g' | sed -e 's/\r//g' | menu --header "$(nshgit_prompt "blame $(print_filename ${op[@]})")" -h $((LINES-1)) --popup --preview git_commit_preview --searchable --hscroll --footer "+ $(draw_shortcut l ScrollRight h ScrollLeft \/ Search Tab ViewCommit)"
+                op= # to return 0
+                ;;
+            *)
+                f="$(sed 's/^[ ]*[A-Z][ ]*//' <<< "$op")" && f="${f#\"}" && f="${f%\"}"
+                if [[ $op == A\ * ]]; then
+                    op="$(menu --popup --header "$NSH_PROMPT $(print_filename "$f")" Commit Undo\ add View)"
+                    if [[ $op == Commit ]]; then
+                        op="commit $f"
+                    elif [[ $op == Undo* ]]; then
+                        nshgit_prompt "Unstage $(print_filename "$f")"
+                        nshgit_run reset "$f"
+                    elif [[ $op == View ]]; then
+                        "$NSH_DEFAULT_EDITOR" "$f"
+                    fi
+                    [[ $op == Commit ]] && continue
+                elif [[ $op =~ ^[A-Z]\  && -e "$f" ]]; then
+                    nshgit_prompt "diff $(print_filename "$f")"
+                    command git diff "$f" | git_diff_formatter
+                    op="$(menu --popup "commit $f" "revert $f" "blame $f" open)"
+                    if [[ $op == open ]]; then
+                        "$NSH_DEFAULT_EDITOR" "$f"
+                    else
+                        op=("${op%% *}" "${op#* }")
+                        continue
+                    fi
+                else
+                    nshgit_run "${op[@]}"
+                fi
+                ;;
+        esac
+        [[ $(get_cursor_col) -gt 1 ]] && echo
+        [[ -n $param ]] && break
+        op=
+    done
 }
 
 get_num_words() {
@@ -1349,7 +1620,7 @@ play2048() {
 # main function
 ############################################################################
 nsh() {
-    local version='0.1.1'
+    local version='0.1.2'
     local nsh_mode=
     local subprompt=
     local INDENT=
@@ -1889,44 +2160,55 @@ nsh() {
         fi
         move_cursor "$max_lines;9999"
     }
-    git_diff_list2() {
-        fn() {
-            local w=$((COLUMNS-list_width-3))
-            if [[ $1 != brief && -d "${list[$focus]}" ]]; then
-                cd "${list[$focus]}"; git diff --stat --stat-width=$w --color=always . 2>/dev/null; git diff . 2>/dev/null
-            else
-                git diff --stat --stat-width=$w --color=always -- "${list[$focus]}" 2>/dev/null
-                git diff -- "${list[$focus]}" 2>/dev/null | tr -d '\r' 2>/dev/null
-            fi
-        }
-        list2=()
+    git_diff_formatter() {
         local fn=
+        local prev=
         local ln=0
+        local started=
         while IFS=$'\n' read -r line; do
             if [[ $line == diff\ * || $line == index* ]]; then
                 continue
             elif [[ $line == +++* || $line == ---* ]]; then
                 [[ -n "$fn" || $line == */dev/null* ]] && continue
-                [[ ${#list2[@]} -gt 0 ]] && list2+=('')
-                fn="${line:6}"
-                line="@$fn"
+                [[ -n $started ]] && echo
+                fn="$(echo ${line:6})" # to handle non-printable characters
+                line=$'\e[36m'"$fn"$'\e[0m'
                 [[ $1 == brief ]] && line=$'\e[1;4m'"$line"$'\e[0m'
             elif [[ $line == @@* ]]; then
                 fn=
                 ln="${line#* +}"
                 ln="${ln%%,*}"
+                ln="${ln%% *}"
                 [[ $ln == 1 ]] && continue
                 line="${line:3}"
                 line="${line#* @@}"
-                line="      $line ..."$'\e[0m'
+                if [[ "$prev" == "$line" ]]; then
+                    line='      ...'
+                else
+                    prev="$line"
+                    line=$'\e[4m'"      $line"$'\e[0m'
+                fi
             elif [[ $line == -* || $line == \ -* ]]; then
                 line=$'\e[31m'"      $line"
             else
                 [[ $line == +* || $line == \ +* ]] && line=$'\e[32m'"$line"
-                [[ $ln -gt 0 ]] && line=$'\e[33m'$(printf "%5d%b %s" $ln $'\e[37m' "$line") && ((ln++))
+                [[ $ln -gt 0 ]] && line=$'\e[33m'$(printf "%5d%b %s" $ln $'\e[37m' "$line") && ((ln++)) 2>/dev/null
             fi
-            list2+=("${line}")
-        done < <(fn $@)
+            echo "$line"
+            started=yes
+        done
+    }
+    git_diff_list2() {
+        fn() {
+            local w=$((COLUMNS-list_width-3))
+            if [[ $1 != brief && -d "${list[$focus]}" ]]; then
+                cd "${list[$focus]}"; command git diff --stat --stat-width=$w --color=always . 2>/dev/null; git diff . 2>/dev/null
+            else
+                command git diff --stat --stat-width=$w --color=always -- "${list[$focus]}" 2>/dev/null
+                command git diff -- "${list[$focus]}" 2>/dev/null | tr -d '\r' 2>/dev/null
+            fi
+        }
+        IFS=$'\n' read -d "" -ra list2 < <(fn $@ | git_diff_formatter)
     }
     redraw() {
         hide_cursor
@@ -2035,7 +2317,7 @@ nsh() {
             draw_help_line "Press $NSH_COLOR_SH1 v \e[0m to edit the file using the default editor. To check the default editor, see NSH_DEFAULT_EDITOR in config.\e[K"
             draw_help_line "See the table of important keyboard shortcuts below:\e[K"
             local c='Less' && [[ $show_all -eq 0 ]] && c='All'
-            draw_shortcut_ml "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "i" "Rename" "I" "Touch" "dd" "Delete" "m" "Mark" "'" "Bookmarks" 'L' "Ln" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Grep" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
+            draw_shortcut_ml "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "i" "Rename" "I" "Touch" "dd" "Delete" "m" "Mark" "'" "Bookmarks" 'L' "Ln" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Git" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
             show_cursor
             get_key
             disable_line_wrapping
@@ -2068,7 +2350,7 @@ nsh() {
             shift
         fi
         if [[ $# -eq 1 && $mode != --input ]]; then
-            dialog $mode "$@" " Ok "
+            dialog $mode "$@" " OK "
             return $?
         fi
         get_terminal_size
@@ -2081,7 +2363,7 @@ nsh() {
         local bidx=0
         local color="$NSH_COLOR_DLG"
         while IFS='\n' read line; do
-            line="$(strip_escape "$line")"
+            [[ $opened == yes ]] && line="$(strip_escape "$line")"
             local len=${#line}
             if [ $len -gt $((COLUMNS-4)) ]; then
                 line="${line:0:$((COLUMNS-7))}..."
@@ -2122,14 +2404,14 @@ nsh() {
             done
             ((y++))
         else
-            echo -ne "$NSH_PROMPT ${str[0]}\e[K"
+            echo -ne "\r$NSH_PROMPT ${str[0]}\e[K"
             local i= && for ((i=1; i<${#str[@]}; i++)); do
                 echo -ne "\n    ${str[$i]}\e[K"
             done
             [[ $mode != --input ]] && echo
             if [[ -z $mode ]]; then
                 [[ ${#btn[@]} -eq 1 ]] && return 0
-                i="$(menu --popup "${btn[@]}" --return-idx)"
+                i="$(menu "${btn[@]}" --return-idx)"
                 return ${i:-255}
             fi
         fi
@@ -2257,7 +2539,7 @@ nsh() {
             if [ $git_mode -eq 0 ]; then
                 echo "$lsparam" $lssort | xargs ls
             else
-                git status --short 2>/dev/null | sed -e 's/^[ ]*[^ ]*\ //' -e 's/\/$//'
+                command git status --short 2>/dev/null | sed -e 's/^[ ]*[^ ]*\ //' -e 's/\/$//' | sed -e 's/^\"\(.*\)\"$/\1/'
             fi
         }
         if [[ -z $lssort ]]; then
@@ -2421,17 +2703,17 @@ nsh() {
                     return
                     ;;
             esac
-        done < <(LANGUAGE=en_US.UTF-8 git status 2>&1 || echo @@@ERROR@@@)
+        done < <(LANGUAGE=en_US.UTF-8 command git status 2>&1 || echo @@@ERROR@@@)
         if [ -z "$git_stat" ]; then
             [[ $opened == yes ]] && local i= && for ((i=0; i<${#list[@]}; i++)); do
                 git_mark[$i]=' '
                 if [ -d "${list[$i]}" -a -d "${list[$i]}/.git/" ]; then
                     git_mark[$i]=$'\e[42m \e[0m'
-                    (command cd "${list[$i]}"; git diff --quiet 2>/dev/null)
-                    if ! (command cd "${list[$i]}"; git diff --quiet 2>/dev/null); then
+                    (command cd "${list[$i]}"; command git diff --quiet 2>/dev/null)
+                    if ! (command cd "${list[$i]}"; command git diff --quiet 2>/dev/null); then
                         git_mark[$i]=$'\e[41m \e[0m'
                     else
-                        tmp="$(command cd "${list[$i]}"; LANGUAGE=en_US.UTF-8 git status -sb | head -n 1)"
+                        tmp="$(command cd "${list[$i]}"; LANGUAGE=en_US.UTF-8 command git status -sb | head -n 1)"
                         m='\[(ahead|behind) [0-9]+\]$'
                         [[ "$tmp" =~ $m ]] && git_mark[$i]=$'\e[43m \e[0m'
                     fi
@@ -2461,7 +2743,7 @@ nsh() {
                 fi
                 tmp= && while read line; do
                     tmp="$tmp;$line"
-                done < <(git ls-files --others --exclude-standard 2>/dev/null | awk -F / '{print $1}' | uniq)
+                done < <(command git ls-files --others --exclude-standard 2>/dev/null | awk -F / '{print $1}' | uniq)
                 local i= && for ((i=0; i<${#list[@]}; i++)); do
                     if [[ "$tmp;" == *"${list[$i]};"* ]]; then
                         [[ ${#git_mark[@]} -eq 0 ]] && local n= && for ((n=0; n<${#list[@]}; n++)); do
@@ -2492,7 +2774,6 @@ nsh() {
         local op="$1"
         yopen() {
             path="$(command cd "$1/"; pwd)"
-            [[ $path == / ]] && path=
             move_cursor "1;$((list_width+1))"
             if [[ $op == cp ]]; then
                 printf '\e[30;42m\e[K| Copy to: %s\e[0m' "$(print_filename "$path")"
@@ -2501,6 +2782,7 @@ nsh() {
             else
                 printf '\e[30;42m\e[K| Make a Symbolic link of...\e[0m'
             fi
+            [[ $path == / ]] && path=
             dirs=()
             files=()
             yfocus=0
@@ -2509,7 +2791,7 @@ nsh() {
             if [[ -z "$filter" ]]; then
                 while read line; do
                     ylist+=("$line")
-                done < <(nshls "$path")
+                done < <(nshls "${path:-/}")
             else
                 shopt -s nocaseglob
                 while read line; do
@@ -2518,7 +2800,7 @@ nsh() {
                     else
                         files+=("$line")
                     fi
-                done < <(cd "$path"; eval ls -Ad "$(fuzzy_word "$filter")" | sort --ignore-case)
+                done < <(cd "${path:-/}"; eval ls -Ad "$(fuzzy_word "$filter")" | sort --ignore-case)
                 ylist=("${dirs[@]}" "${files[@]}")
             fi
             listy_size=${#ylist[@]}
@@ -3070,7 +3352,12 @@ nsh() {
         STRING="$@"
         if [[ -n "$STRING" ]]; then
             word="${STRING% *}" && word="${word##* }" && last_word="${word%?}"
-            [[ $STRING != *\  ]] && NEXT_KEY=$'\n'
+            if [[ $STRING != *\  ]]; then
+                NEXT_KEY=$'\n'
+            else
+                STRING="${STRING% }"
+                NEXT_KEY=\ 
+            fi
         fi
         local cand cand_color
         local fuzzy
@@ -3317,7 +3604,7 @@ nsh() {
                 #type "$fname" &>/dev/null
                 [[ $fname == "vi" || $fname == exit || $fname == echo ]] && return
                 if is_binary $(which "$fname" 2>/dev/null) &>/dev/null; then
-                    IFS=$'\n' read -d "" -ra usage < <("$fname" --help 2>&1)
+                    IFS=$'\n' read -d "" -ra usage < <("$(which "$fname")" --help 2>&1)
                 elif [[ $fname == git\ * ]]; then
                     IFS=$'\n' read -d "" -ra usage < <("$fname" --help 2>&1 | tail -n +4)
                 elif [ -f "$fname" ]; then
@@ -3341,7 +3628,7 @@ nsh() {
                                         if [[ $1 == help* ]]; then
                                             line="${line%,}"
                                             #[[ ${#line} -lt 20 ]] && line="$line$(printf '%*s' $((20-${#line})) ' ')"
-                                            line="$line$def"$'\e[0;90m'" ${1##*=}" && def=
+                                            line="$line$def"$'\e[0m'" ${1##*=}" && def=
                                         fi
                                     else
                                         [[ -n "$line" ]] && line="$line "
@@ -3353,13 +3640,20 @@ nsh() {
                             done
                             printf '%s' "${line%,}$def"
                         }
+                        local mand=
                         while IFS='\n' read line; do
                             line="${line#*(}"
                             line="${line%)*}"
-                            #usage+=("$line")
-                            usage+=("$(format_argparse $line)")
-                        done < <(grep add_argument "$fname" 2>/dev/null | tr -d '\r' 2>/dev/null | sed -e "s/\('\|\"\)//g" -e "s/.*add_argument.*(//")
-                        local _t="Usage: python $fname"
+                            local u="$(format_argparse $line)"
+                            if [[ $line == *required=True* && $line != *=store_true* ]]; then
+                                local m="$(strip_escape "$u")"
+                                local a0="$(sed -e 's/^[ ]*//' -e 's/[ ,].*$//' <<< "$m")"
+                                local a1="$(sed -e 's/^.*-//' -e 's/[ ,].*$//' <<< "$a0")"
+                                mand="$mand $a0 ${a1^^}"
+                            fi
+                            usage+=("$u")
+                        done < <(grep add_argument "$fname" 2>/dev/null | tr -d '\r' 2>/dev/null | sed -e "s/'//g" -e 's/"//g' -e "s/.*add_argument.*(//")
+                        local _t="Usage: python $fname$mand"
                         local i= && for i in "${usage[@]}"; do
                             [[ $i == -* || "$i" == \ \ \ \ --* ]] && _t="$_t [option]..." && break
                         done
@@ -3417,33 +3711,9 @@ nsh() {
             [[ "$STRING" == \~ ]] && STRING="cd ~"
             [[ "$STRING" =~ ^[\.]+$ ]] && STRING="${STRING#?}" && STRING="${STRING//./../}"
             [[ -d "$STRING" ]] && STRING="cd $STRING"
+            [[ -z $STRING ]] && return
             [[ $STRING == cd\ * ]] && STRING="$STRING && ls $LS_COLOR_PARAM && pwd >~/.cache/nsh/lastdir"
             [[ $STRING == git\ checkout\ * && $(get_num_words $STRING) -eq 3 && $STRING == *\ origin/* ]] && STRING="git checkout ${STRING##*origin/}"
-            if [[ $STRING == git\ branch ]]; then
-                local branch="$(git_branch | menu --searchable --popup --footer "+ $(draw_shortcut ENTER Checkout d Delete \/ Search z Zoom)" --key d 'echo "delete $1"')"
-                if [[ $branch == delete\ * ]]; then
-                    STRING="git branch -d ${branch#* }"
-                else
-                    [[ -n "$branch" ]] && git checkout "$branch"
-                    return
-                fi
-            fi
-            [[ $STRING == git\ branch\ -d\ * && $(get_num_words $STRING) -eq 4 ]] && STRING="${STRING##* }" && if [[ $STRING == origin/* ]]; then STRING="git push origin --delete ${STRING#*origin/}"; echo -ne "$NSH_PROMPT This will delete a branch REMOTELY. Do you want to continue (Y/n)? "; get_key KEY; [[ $KEY != Y && $KEY != y ]] && return; echo $KEY; echo -e "$NSH_PROMPT $STRING"; else STRING="git branch -d $STRING"; fi
-            if [[ $STRING == git\ rebase\ * && $(get_num_words $STRING) -eq 3 ]]; then
-                local dst="${STRING## *}"
-                if [[ -n "$(git branch --list "$dst")" || -n "$(git branch -r | sed 's/$/ /' | grep " $dst ")" ]]; then
-                    local p="$(git_parent)"
-                    local c="$(git_branch_name)"
-                    if [[ -n "$p" && "$p" != "$dst" ]]; then
-                        echo -e "$NSH_PROMPT It is recommended to use --onto option since this branch seems to be based on $p:"
-                        echo "      git rebase --onto $dst $p $c"
-                        echo -en "$NSH_PROMPT Run above command? (Y/n) "
-                        get_key KEY
-                        [[ $KEY == Y || $KEY == y ]] && STRING="git rebase --onto $dst $p $c"
-                    fi
-                    STRING="$STRING | sed 's/^\\(Applying: \\)\\(.*\\)$/\\x1b[33m\\1\\x1b[0;4m\\2\\x1b[0m/'"
-                fi
-            fi
             if [[ $STRING == exit ]]; then
                 quit
             elif [[ $STRING == jobs ]]; then
@@ -3464,18 +3734,6 @@ nsh() {
                         kill -9 $pid
                     fi
                 done
-            elif [[ "$STRING" == git\ log\ * || "$STRING" == git\ log ]]; then
-                flist="${STRING#*log}" && [[ $flist != --* ]] && flist="-- $flist"
-                commit="$(git_log $flist)"
-                if [[ -n "$commit" ]]; then
-                    git log -n 1 $commit
-                    echo -en "$NSH_PROMPT Checkout this version (Y/n)? "
-                    get_key KEY
-                    [[ $KEY == Y || $KEY == y ]] && git checkout "$commit"
-                    echo $KEY
-                fi
-            elif [[ "$STRING" == git\ blame\ * ]]; then
-                local l="$(eval "$STRING" | sed -e 's/\([^ ]\+ \)[^(]*/\1/' -e 's/\t/    /g' | menu -h $((LINES-1)) --popup --preview git_commit_preview --searchable --hscroll --footer "+ $(draw_shortcut l ScrollRight h ScrollLeft \/ Search Tab ViewCommit)")"
             elif [[ "$STRING" == git\ remote\ add ]]; then
                 echo -en "$NSH_PROMPT Repository name: "
                 read_string 'upstream'
@@ -3524,14 +3782,7 @@ nsh() {
                 fi
                 STRINGBUF=
                 local report=
-                if [[ $NSH_EXIT_CODE -ne 0 ]]; then
-                    if [[ $STRING == git\ pull\ * && $STRING != *--force* ]]; then
-                        echo -ne "$NSH_PROMPT git pull failed. Do you want to force git pull? (Y/n) "
-                        get_key KEY
-                        [[ Yy == *KEY* ]] && eval "$STRING --force"$'\n'"$(echo NSH_EXIT_CODE=\$?)"
-                    fi
-                    report+="\033[31m[$NSH_EXIT_CODE returned]"
-                fi
+                [[ $NSH_EXIT_CODE -ne 0 ]] && report+="\033[31m[$NSH_EXIT_CODE returned]"
                 local telapsed=$((($(get_timestamp)-tbeg+500)/1000))
                 [[ $(get_cursor_col) -gt 1 ]] && echo $'\e[0;30;43m'"\\n"$'\e[0m'
                 if [[ "$NSH_DO_NOT_SHOW_ELAPSED_TIME," != *"${STRING%% *},"* ]]; then
@@ -3888,7 +4139,7 @@ nsh() {
             STRING=
             STRING_SUGGEST=
             subprompt=
-            [[ $secret -ne 0 ]] && break
+            [[ $secret -ne 0 && $NSH_EXIT_CODE -eq 0 ]] && break
         done
 
         hide_cursor
@@ -4130,20 +4381,19 @@ nsh() {
                     git_op() {
                         case "$1" in
                         p|pull)
-                            dialog "git: pulll from $(git_branch_name)?" && subshell "git pull origin $(git_branch_name)"
+                            dialog "git: pulll from $(git_branch_name)?" && subshell "nshgit pull"
                             ;;
                         h|push)
-                            dialog "git: push to $(git_branch_name)?" && subshell "git push origin $(git_branch_name)"
+                            dialog "git: push to $(git_branch_name)?" && subshell "nshgit push"
                             ;;
                         'create a branch')
                             subshell 'git checkout -b '
                             ;;
                         'list branches')
-                            subshell 'git branch'
+                            subshell 'nshgit branch'
                             ;;
                         k|checkout|'switch branch')
-                            NEXT_KEY=$'\t'
-                            subshell 'git checkout '
+                            subshell 'nshgit branch'
                             ;;
                         m|'merge a branch')
                             NEXT_KEY=$'\t'
@@ -4167,38 +4417,25 @@ nsh() {
                             subshell "git commit$sel"
                             ;;
                         u|revert)
-                            dialog "git: revert changes?" && if [ $git_stat_c -eq 101 ]; then
-                                subshell "git checkout --$sel"
-                            else
-                                git_revert() {
-                                    id="$(git_log)"
-                                    [[ -n "$id" ]] && git reset --hard $id
-                                }
-                                subshell git_revert
-                            fi
-                            ;;
-                        e|'edit commits')
-                            git_edit_commits() {
-                                i="$(git_log --return-idx .)"
-                                [[ -n "$i" ]] && git rebase -i "@~$((i+1))"
-                            }
-                            subshell git_edit_commits
+                            subshell nshgit revert "$sel"
                             ;;
                         l|log)
-                            subshell --secret "git log$sel"
+                            subshell --secret "nshgit log$sel"
                             ;;
                         b|blame)
                             if [[ ${#selected[@]} -eq 1 ]]; then
-                                subshell "git blame$sel"
+                                subshell --secret "nshgit blame$sel"
+                            elif [[ ${#selected[@]} -eq 0 ]]; then
+                                subshell --secret "nshgit blame \"${list[$focus]}\""
                             else
-                                subshell "git blame "
+                                dialog 'Select one file'
                             fi
                             ;;
                         a|add|'add files')
                             if [[ ${#selected[@]} -eq 1 ]]; then
-                                dialog "add$sel to repo?" && subshell "git add$sel"
+                                dialog "add$sel to repo?" && subshell "nshgit add$sel"
                             else
-                                dialog "add ${#selected[@]} files to repo?" && subshell "git add$sel"
+                                dialog "add ${#selected[@]} files to repo?" && subshell "nshgit add$sel"
                             fi
                             ;;
                         d|delete|rm|'delete files')
@@ -4215,13 +4452,8 @@ nsh() {
                         'fix conflicts')
                             subshell 'git_fix_conflicts'
                             ;;
-                        i|info)
-                            git_show_info() {
-                                git remote -v
-                                git status
-                                get_key
-                            }
-                            subshell --secret 'git_show_info'
+                        i)
+                            subshell --secret 'nshgit'
                             ;;
                         esac
                     }
@@ -4237,7 +4469,7 @@ nsh() {
                             if [ -n "$git_stat" ]; then
                                 move_cursor 2
                                 local f="$(printf '%*s' $COLUMNS ' ')" && f="${f//\ /-}"
-                                i=$(menu "Key   Command" 'p    pull' 'h    push' '     create a branch' '     delete a branch' '     list branches' 'k    switch branch' 'm    merge a branch' 'r    move this branch to another' 'f    fetch' '     add a remote repository' 'c    commit' 'u    revert' 'e    edit commits' 'a    add files' 'd    delete files' 'l    log' 'b    blame' 's    show modified files only' '     fix conflicts' 'i    info' -h $max_lines --popup --header - --footer $f)
+                                i=$(menu "Key   Command" 'p    pull' 'h    push' '     create a branch' '     delete a branch' '     list branches' 'k    switch branch' 'm    merge a branch' 'r    move this branch to another' 'f    fetch' '     add a remote repository' 'c    commit' 'u    revert' 'a    add files' 'd    delete files' 'l    log' 'b    blame' 's    show modified files only' '     fix conflicts' 'i    nshgit' -h $max_lines --popup --header - --footer $f)
                                 disable_line_wrapping
                                 hide_cursor
                                 [[ -n "$i" ]] && git_op "${i#?????}" || redraw
@@ -4504,38 +4736,43 @@ nsh() {
                                     local fname="${list[$focus]}"
                                     if [ -n $sel ]; then
                                         local i= && for ((i=$sel0; i>=0; i--)); do
-                                            [[ ${list2[$i]} == @* ]] && fname="${list2[$i]}" && fname="${fname#?}"
+                                        [[ ${list2[$i]} == @* ]] && fname="${list2[$i]}" && fname="$(git_root)/${fname#?}"
                                         done
                                     fi
                                     last_item="$PWD/${list[$focus]}"
                                     if [[ $KEY == c ]]; then
-                                        dialog "Commit\n$fname" "Ok" "Cancel" && subshell "git commit $fname" && update && break
+                                        dialog "Commit\n$fname" "OK" "Cancel" && subshell "git commit $fname" && update && break
                                     else
                                         if [ -z $sel ]; then
-                                            dialog "Revert\n$fname" "Ok" "Cancel" && subshell "git checkout -- $fname" && update && break
+                                            dialog "Revert\n$fname" "OK" "Cancel" && subshell "git checkout -- $fname" && update && break
                                         else
+                                            local tmpfile=~/.config/nsh/tmpfile
+                                            cp "$fname" "$tmpfile"
                                             local ln="${list2[$((sel0-1))]}"
-                                            local added=0
                                             if [[ "$ln" == $'\e[33m'* ]]; then
-                                                ln="$(strip_escape "$ln" | sed 's/^[ ]*//')"
-                                                ln="${ln%% *}"
+                                                ln="$(strip_escape "$ln" | sed 's/^[ ]*//')" && ln="${ln%% *}"
                                             else
                                                 ln=0
                                             fi
+                                            (head -n "$ln" "$fname" 2>/dev/null) > "$tmpfile"
                                             local i= && for ((i=$sel0; i<=$sel1; i++)); do
                                                 local l="${list2[$i]}"
                                                 if [[ "$l" == $'\e[31m'* ]]; then
-                                                    l="${l#*-}"
-                                                    [[ -z "$l" ]] && sed -i "${ln}G" "$fname" || sed -i "$((ln+1))i\\${l//\\/\\\\}" "$fname"
-                                                    ((ln++))
-                                                    ((added++))
-                                                else
-                                                    l="$(strip_escape "$l" | sed 's/^[ ]*//')"
-                                                    l="${l%% *}"
-                                                    sed -i "$((l+added))d" "$fname"
-                                                    ((added--))
+                                                    echo "${l#*-}" >> "$tmpfile"
                                                 fi
                                             done
+                                            if [[ $((sel1+1)) -lt ${#list2[@]} ]]; then
+                                                ln="${list2[$((sel1+1))]}"
+                                                if [[ $ln == $'\e[33m'* ]]; then
+                                                    ln="$(strip_escape "$ln" | sed 's/^[ ]*//')" && ln="${ln%% *}"
+                                                    if [[ $ln -gt 1 ]]; then
+                                                        sed "1,$((ln-1))d" "$fname" >> "$tmpfile"
+                                                    else
+                                                        cat "$fname" >> "$tmpfile"
+                                                    fi
+                                                fi
+                                            fi
+                                            mv "$tmpfile" "$fname"
                                             sel= && sel1=$((sel0-1))
                                             git_diff_list2
                                             NEXT_KEY=$'\t'
@@ -4544,7 +4781,7 @@ nsh() {
                                     fi
                                     ;;
                                 $'\t')
-                                    local sel= && local sel0= && local sel1= && for ((sel0=$((sel1+1)); sel0<${#list2[@]}; sel0++)); do
+                                    sel= && for ((sel0=$((sel1+1)); sel0<${#list2[@]}; sel0++)); do
                                         if [[ ${list2[$sel0]} == $'\e[31m'* || ${list2[$sel0]} == *$'\e[33m'*$'\e[32m+'* ]]; then
                                             sel=- && for ((sel1=$sel0; sel1<${#list2[@]}; sel1++)); do
                                                 [[ ${list2[$sel1]} != $'\e[31m'* && ${list2[$sel1]} != *$'\e[33m'*$'\e[32m+'* ]] && ((sel1--)) && break
@@ -4560,7 +4797,7 @@ nsh() {
                                     fi
                                     ;;
                                 $'\e[Z')
-                                    local sel= && local sel0= && local sel1= && for ((sel1=$((sel0-1)); sel1>=0; sel1--)); do
+                                    sel= && for ((sel1=$((sel0-1)); sel1>=0; sel1--)); do
                                         if [[ ${list2[$sel1]} == $'\e[31m'* || ${list2[$sel1]} == *$'\e[33m'*$'\e[32m+'* ]]; then
                                             sel=- && for ((sel0=$sel1; sel0>=0; sel0--)); do
                                                 [[ ${list2[$sel0]} != $'\e[31m'* && ${list2[$sel0]} != *$'\e[33m'*$'\e[32m+'* ]] && ((sel0++)) && break
@@ -4610,6 +4847,7 @@ nsh() {
                         local i= && for ((i=0; i<${#list[@]}; i++)); do
                             [[ -n ${selected[$i]} ]] && tmp="$tmp\"${list[$i]}\" " && [[ -d "${list[$i]}" ]] && tmp="${tmp%??}/\" "
                         done
+                        [[ -n "$tmp" ]] && tmp=" $tmp"
                         NEXT_KEY=$'\e[H'
                         subshell "$tmp"
                     fi
@@ -4669,7 +4907,7 @@ nsh() {
                     fi
                     ;;
                 'q')
-                    break
+                    subshell --secret exit
                     ;;
                 '.')
                     [[ $show_all -eq 0 ]] && show_all=1 || show_all=0
