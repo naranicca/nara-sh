@@ -34,6 +34,10 @@ NSH_COLOR_SH2=$'\e[37;100m'   # shortcut color2
 NSH_COLOR_DLG=$'\e[48;5;250;30m'
 NSH_COLOR_BKG='48;5;239'
 
+# menu
+NSH_MENU_DEFAULT_CURSOR=$'\e[31;40m> '
+NSH_MENU_DEFAULT_SEL_COLOR='32;40'
+
 # aliases
 alias ls='command ls --color=auto'
 alias ll='ls -Al'
@@ -539,13 +543,13 @@ menu() {
     local min_height=${NSH_BOTTOM_MARGIN:-20%}
     local toprow=
 
-    local cursor0=''
+    local cursor0="$NSH_MENU_DEFAULT_CURSOR"
     local items=()
     local cur=-1 cur_bak=0
     local popup=0
     local hscroll=-1
     local return_idx=0
-    local sel_color='30;43'
+    local sel_color="$NSH_MENU_DEFAULT_SEL_COLOR"
     local readparam=
     local header=
     local footer=
