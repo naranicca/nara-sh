@@ -4637,28 +4637,32 @@ nsh() {
                                         if [ -z $sel ]; then
                                             dialog "Revert\n$fname" "OK" "Cancel" && subshell "git checkout -- $fname" && update && break
                                         else
+                                            local tmpfile=~/.config/nsh/tmpfile
                                             local ln="${list2[$((sel0-1))]}"
-                                            local added=0
                                             if [[ "$ln" == $'\e[33m'* ]]; then
-                                                ln="$(strip_escape "$ln" | sed 's/^[ ]*//')"
-                                                ln="${ln%% *}"
+                                                ln="$(strip_escape "$ln" | sed 's/^[ ]*//')" && ln="${ln%% *}"
                                             else
                                                 ln=0
                                             fi
+                                            (head -n "$ln" "$fname" 2>/dev/null) > "$tmpfile"
                                             local i= && for ((i=$sel0; i<=$sel1; i++)); do
                                                 local l="${list2[$i]}"
                                                 if [[ "$l" == $'\e[31m'* ]]; then
-                                                    l="${l#*-}"
-                                                    [[ -z "$l" ]] && sed -i "${ln}G" "$fname" || sed -i "$((ln+1))i\\${l//\\/\\\\}" "$fname"
-                                                    ((ln++))
-                                                    ((added++))
-                                                else
-                                                    l="$(strip_escape "$l" | sed 's/^[ ]*//')"
-                                                    l="${l%% *}"
-                                                    sed -i "$((l+added))d" "$fname"
-                                                    ((added--))
+                                                    echo "${l#*-}" >> "$tmpfile"
                                                 fi
                                             done
+                                            if [[ $((sel1+1)) -lt ${#list2[@]} ]]; then
+                                                ln="${list2[$((sel1+1))]}"
+                                                if [[ $ln == $'\e[33m'* ]]; then
+                                                    ln="$(strip_escape "$ln" | sed 's/^[ ]*//')" && ln="${ln%% *}"
+                                                    if [[ $ln -gt 1 ]]; then
+                                                        sed "1,$((ln-1))d" "$fname" >> "$tmpfile"
+                                                    else
+                                                        cat "$fname" >> "$tmpfile"
+                                                    fi
+                                                fi
+                                            fi
+                                            mv "$tmpfile" "$fname"
                                             sel= && sel1=$((sel0-1))
                                             git_diff_list2
                                             NEXT_KEY=$'\t'
@@ -4667,7 +4671,7 @@ nsh() {
                                     fi
                                     ;;
                                 $'\t')
-                                    local sel= && local sel0= && local sel1= && for ((sel0=$((sel1+1)); sel0<${#list2[@]}; sel0++)); do
+                                    sel= && for ((sel0=$((sel1+1)); sel0<${#list2[@]}; sel0++)); do
                                         if [[ ${list2[$sel0]} == $'\e[31m'* || ${list2[$sel0]} == *$'\e[33m'*$'\e[32m+'* ]]; then
                                             sel=- && for ((sel1=$sel0; sel1<${#list2[@]}; sel1++)); do
                                                 [[ ${list2[$sel1]} != $'\e[31m'* && ${list2[$sel1]} != *$'\e[33m'*$'\e[32m+'* ]] && ((sel1--)) && break
@@ -4683,7 +4687,7 @@ nsh() {
                                     fi
                                     ;;
                                 $'\e[Z')
-                                    local sel= && local sel0= && local sel1= && for ((sel1=$((sel0-1)); sel1>=0; sel1--)); do
+                                    sel= && for ((sel1=$((sel0-1)); sel1>=0; sel1--)); do
                                         if [[ ${list2[$sel1]} == $'\e[31m'* || ${list2[$sel1]} == *$'\e[33m'*$'\e[32m+'* ]]; then
                                             sel=- && for ((sel0=$sel1; sel0>=0; sel0--)); do
                                                 [[ ${list2[$sel0]} != $'\e[31m'* && ${list2[$sel0]} != *$'\e[33m'*$'\e[32m+'* ]] && ((sel0++)) && break
