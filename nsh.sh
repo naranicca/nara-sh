@@ -1407,6 +1407,18 @@ nshgit() {
     done
 }
 
+python() {
+    if [[ $# -gt 0 ]]; then
+        __python_stderr__() {
+            sed -e 's/\(\ \ File\ \)\"\(.*\)\",\ line\ \([0-9]*\),/\x1b[1;35m\2\x1b[0m:\x1b[1;33m\3\x1b[0m/'
+#sed -e 's/\(\ \ File\ \)\"\(.*\)\",\ line\ /!!!!!!!!!!!!!!!!!!!!/'
+        }
+        command python "$@" 2> >(__python_stderr__)
+    else
+        command python "$@"
+    fi
+}
+
 get_num_words() {
     echo $#
 }
