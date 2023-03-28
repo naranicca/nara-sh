@@ -2505,7 +2505,7 @@ nsh() {
             elif [ -x "$1" ]; then
                 subshell "./$fname "
             else
-                subshell "$fname "
+                subshell " $fname "
             fi
         fi
     }
@@ -3368,7 +3368,6 @@ nsh() {
                 NEXT_KEY=$'\n'
             else
                 STRING="${STRING% }"
-                NEXT_KEY=\ 
             fi
         fi
         local cand cand_color
@@ -3826,6 +3825,7 @@ nsh() {
             last_word=
             fname_old=
             cursor=${#STRING}
+            [[ -z $NEXT_KEY && $STRING == \ * ]] && cursor=0
             cand=()
             usage=()
 
@@ -4315,8 +4315,7 @@ nsh() {
                             local i= && for ((i=0; i<${#list[@]}; i++)); do
                                 [[ -n ${selected[$i]} ]] && sel="$sel \"${list[$i]}\""
                             done
-                            NEXT_KEY=$'\e[H'
-                            subshell "${sel# } "
+                            subshell " ${sel# } "
                         fi
                     fi
                     ;;
