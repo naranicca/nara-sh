@@ -2329,7 +2329,7 @@ nsh() {
             draw_help_line "Press $NSH_COLOR_SH1 v \e[0m to edit the file using the default editor. To check the default editor, see NSH_DEFAULT_EDITOR in config.\e[K"
             draw_help_line "See the table of important keyboard shortcuts below:\e[K"
             local c='Less' && [[ $show_all -eq 0 ]] && c='All'
-            draw_shortcut_ml "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "i" "Rename" "I" "Touch" "dd" "Delete" "m" "Mark" "'" "Bookmarks" 'L' "Ln" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Git" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
+            draw_shortcut_ml F2 Rename F5 Copy F6 Move F7 Mkdir F10 Config g Git y Yank P Paste r Refresh i Rename I Touch dd Delete m Mark \' Bookmarks \; Commands Tab View \: Shell \/ Search \^G Git \. "Show$c" s Sort \~ Home 2 2048
             show_cursor
             get_key
             disable_line_wrapping
@@ -2792,7 +2792,7 @@ nsh() {
             elif [[ $op == mv ]]; then
                 printf '\e[30;42m\e[K| Move to: %s\e[0m' "$(print_filename "$path")"
             else
-                printf '\e[30;42m\e[K| Make a Symbolic link of...\e[0m'
+                printf '\e[30;42m\e[K| Bring to the left pane\e[0m'
             fi
             [[ $path == / ]] && path=
             dirs=()
@@ -2850,7 +2850,7 @@ nsh() {
             elif [[ $op == mv ]]; then
                 draw_shortcut "p" "Paste " "D" "Delete" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             else
-                draw_shortcut "L" "Make Link" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+                draw_shortcut ENTER Select "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             fi
         }
 
@@ -2918,8 +2918,24 @@ nsh() {
                     fi
                     ;;
                 $'\n'|'l')
-                    filter=
-                    yopen "$path/${ylist[$yfocus]}"
+                    if [[ $KEY == $'\n' && $op == bring ]]; then
+                        dialog "$path/${ylist[$yfocus]}" Copy Move Symbolic\ Link
+                        case $? in
+                        0)
+                            cp -r "$path/${ylist[$yfocus]}" "$PWD"
+                            ;;
+                        1)
+                            mv "$path/${ylist[$yfocus]}" "$PWD"
+                            ;;
+                        2)
+                            ln -s "$path/${ylist[$yfocus]}" "${ylist[yfocus]}"
+                            ;;
+                        esac
+                        break
+                    else
+                        filter=
+                        yopen "$path/${ylist[$yfocus]}"
+                    fi
                     ;;
                 '.')
                     [[ $show_all -eq 0 ]] && show_all=1 || show_all=0
@@ -4550,8 +4566,8 @@ nsh() {
                 'd'|$'\e[17~')
                     yank mv
                     ;;
-                L)
-                    yank ln
+                P)
+                    yank bring
                     ;;
                 $'\e[12~'|$'\eOQ'|'i') # F2
                     f="${list[$focus]}"
