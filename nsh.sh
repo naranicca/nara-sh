@@ -3481,9 +3481,6 @@ nsh() {
                         fi
                     fi
                 fi
-                if [[ ${#cand[@]} == 0 ]]; then
-                    IFS=$'\n' read -d "" -ra cand < <(eval ls -d */$fuzzy */*/$fuzzy */*/*/$fuzzy ../$fuzzy 2>/dev/null)
-                fi
             fi
             [[ -n $word && ${#cand[@]} -eq 0 ]] && cand=("> Ctrl+F for Deep Search")
             get_key -t $get_key_eps NEXT_KEY
