@@ -1125,7 +1125,7 @@ git_log() {
             commit="$(eval "$extra command git log --decorate --color=always --oneline $gopt "$@" 2>/dev/null" | menu -r --footer "+ $(draw_shortcut TAB Preview ENTER Checkout \/ Search . Detail e Edit z Zoom)" --popup --preview git_commit_preview --searchable $mopt --key h 'echo' --key . 'echo !Detail' --key ev 'echo !edit $2' --header "$header")"
             [[ -z $commit ]] && return 0
             if [[ $commit == \!Detail ]]; then
-                [[ $gopt == *--graph* ]] && gopt= || gopt="$gopt --graph --pretty='format:%C(yellow)%h%Creset %C(blue)(%cr|%an)%Creset %s'"
+                [[ $gopt == *--graph* ]] && gopt= || gopt="$gopt --graph --pretty='format:%C(yellow)%h%Creset %C(blue)(%cr|%an)%Creset%C(auto)%d %s'"
             elif [[ $commit == \!edit* ]]; then
                 nshgit_prompt --force 'edit commits'
                 commit="${commit#\!edit }"
