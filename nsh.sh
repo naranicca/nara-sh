@@ -1836,6 +1836,9 @@ nsh() {
             fi
             printf '\e[K'
         else
+            if [[ -z $NEXT_KEY && -n $STRING && $cursor -eq ${#STRING} ]] && [[ -z $STRING_SUGGEST || $STRING_SUGGEST != $STRING* ]]; then
+                STRING_SUGGEST="$(printf "%s\n" "${history[@]}" | grep "^${STRING//./\\.}" | tail -n 1)"
+            fi
             print_command "${STRING:0:$cursor}"
             if [ $cursor -lt ${#STRING} ]; then
                 get_cursor_pos
@@ -1852,7 +1855,6 @@ nsh() {
             fi
         fi
 
-        [[ -z "$NEXT_KEY" ]] && get_key -t $get_key_eps NEXT_KEY
         [[ $opened != yes ]] && show_cursor
     }
     NSH_CURSORCH=$'\007'
@@ -2854,7 +2856,7 @@ nsh() {
             fi
         }
 
-        if [[ ${#selected[@]} -eq 0 && $op != ln ]]; then
+        if [[ ${#selected[@]} -eq 0 && $op != bring ]]; then
             if [[ ${list[$focus]} != ".." ]]; then
                 selected[$focus]="$PWD/${list[$focus]}"
             else
@@ -3652,7 +3654,7 @@ nsh() {
                                         if [[ $1 == help* ]]; then
                                             line="${line%,}"
                                             #[[ ${#line} -lt 20 ]] && line="$line$(printf '%*s' $((20-${#line})) ' ')"
-                                            line="$line$def"$'\e[0m'" ${1##*=}" && def=
+                                            line="$line$def"$'\e[0m'"  ${1##*=}" && def=
                                         fi
                                     else
                                         [[ -n "$line" ]] && line="$line "
@@ -3676,7 +3678,7 @@ nsh() {
                                 mand="$mand $a0 ${a1^^}"
                             fi
                             usage+=("$u")
-                        done < <(grep add_argument "$fname" 2>/dev/null | tr -d '\r' 2>/dev/null | sed -e "s/'//g" -e 's/"//g' -e "s/.*add_argument.*(//")
+                        done < <(grep add_argument "$fname" 2>/dev/null | tr -d '\r' 2>/dev/null | sed -e "s/'//g" -e 's/"//g' -e "s/.*add_argument[^(]*(//")
                         local _t="Usage: python $fname$mand"
                         local i= && for i in "${usage[@]}"; do
                             [[ $i == -* || "$i" == \ \ \ \ --* ]] && _t="$_t [option]..." && break
@@ -3866,10 +3868,6 @@ nsh() {
                         continue
                     fi
                 else
-                    if [[ -n $STRING && $cursor -eq ${#STRING} ]] && [[ -z $STRING_SUGGEST || $STRING_SUGGEST != $STRING* ]]; then
-                        STRING_SUGGEST="$(printf "%s\n" "${history[@]}" | grep "^${STRING//./\\.}" | tail -n 1)"
-                        print_prompt
-                    fi
                     get_key KEY
                     NEXT_KEY=
                 fi
@@ -4158,6 +4156,7 @@ nsh() {
                         fill_cand
                         ;;
                 esac
+		KEY=
                 [[ -z $NEXT_KEY ]] && get_key -t 0.1 NEXT_KEY
             done
             INDENT=
