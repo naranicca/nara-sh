@@ -4443,7 +4443,7 @@ nsh() {
                             subshell "git commit$sel"
                             ;;
                         u|revert)
-                            subshell nshgit revert "$sel"
+                            subshell --secret nshgit revert "$sel"
                             ;;
                         l|log)
                             subshell --secret "nshgit log$sel"
