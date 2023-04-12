@@ -1264,7 +1264,7 @@ nshgit() {
                     [[ -z $STRING ]] && op=branch && continue
                     nshgit_run checkout -b "$STRING"
                 elif [[ -n $branch && $branch != \!* ]]; then
-                    op="$(menu --popup --header "$(nshgit_prompt --force branch \'$branch\')" 'Checkout this branch' 'Merge this branch' 'Move the current branch on to this' 'Explore this branch' 'Delete this branch')"
+                    op="$(menu --popup --header "$(nshgit_prompt --force branch \'$branch\')" 'Checkout this branch' 'Merge this branch' 'Move the current branch on to this' 'Explore this branch' 'Compare this branch and the current branch' 'Delete this branch')"
                     if [[ $op == Checkout* ]]; then
                         nshgit_prompt --force "checkout $branch"
                         nshgit_run checkout "${branch#origin\/}"
@@ -1274,6 +1274,9 @@ nshgit() {
                         branch="!rebase $branch"
                     elif [[ $op == Explore* ]]; then
                         branch="!view $branch"
+                    elif [[ $op == Compare* ]]; then
+                        nshgit_prompt "diff $(git_branch_name) - $branch"
+                        nshgit_run diff "$(git_branch_name)..$branch" | git_diff_formatter
                     elif [[ $op == Delete* ]]; then
                         branch="!delete $branch"
                     else
@@ -4156,7 +4159,7 @@ nsh() {
                         fill_cand
                         ;;
                 esac
-		KEY=
+                KEY=
                 [[ -z $NEXT_KEY ]] && get_key -t 0.1 NEXT_KEY
             done
             INDENT=
