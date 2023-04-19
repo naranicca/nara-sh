@@ -3364,7 +3364,7 @@ nsh() {
         disable_echo
         shopt -s nocaseglob
 
-        local secret=0 && [[ $1 == --secret ]] && secret=1 && shift
+        local oneshot=0 && [[ $1 == --oneshot ]] && oneshot=1 && shift
         local running=1
         local first=1
         local margin
@@ -3916,20 +3916,18 @@ nsh() {
                         hide_usage
                         echo
                         STRING="$(echo "$STRING" | sed -e 's/^[ ]*//' -e 's/[ ]*$//')"
-                        if [ $secret -eq 0 ]; then
-                            local history_size=${#history[@]}
-                            if [[ ! -z $STRING ]] && [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$STRING" ]]; then
-                                [[ "$STRING" != exit ]] && history+=("$STRING")
-                            fi
-                            local li=$((${#history[@]}-1))
-                            if [[ $li -ge 3 && "${history[$li]}" == "${history[$((li-2))]}" && "${history[$((li-1))]}" == "${history[$((li-3))]}" ]]; then
-                                history=("${history[@]:0:$((${#history[@]}-2))}")
-                            fi
-                            if [ ${#history[@]} -ge $HISTSIZE ]; then
-                                history=("${history[@]:$((${#history[@]}-HISTSIZE))}")
-                                history_idx=$((history_idx-${#history[@]}+HISTSIZE))
-                                [[ $history_idx -lt 0 ]] && history_idx=0
-                            fi
+                        local history_size=${#history[@]}
+                        if [[ ! -z $STRING ]] && [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$STRING" ]]; then
+                            [[ "$STRING" != exit ]] && history+=("$STRING")
+                        fi
+                        local li=$((${#history[@]}-1))
+                        if [[ $li -ge 3 && "${history[$li]}" == "${history[$((li-2))]}" && "${history[$((li-1))]}" == "${history[$((li-3))]}" ]]; then
+                            history=("${history[@]:0:$((${#history[@]}-2))}")
+                        fi
+                        if [ ${#history[@]} -ge $HISTSIZE ]; then
+                            history=("${history[@]:$((${#history[@]}-HISTSIZE))}")
+                            history_idx=$((history_idx-${#history[@]}+HISTSIZE))
+                            [[ $history_idx -lt 0 ]] && history_idx=0
                         fi
                         nsheval
                         col0=$(get_cursor_col)
@@ -4154,7 +4152,7 @@ nsh() {
             STRING=
             STRING_SUGGEST=
             subprompt=
-            [[ $secret -ne 0 && $NSH_EXIT_CODE -eq 0 ]] && break
+            [[ $oneshot -ne 0 && $NSH_EXIT_CODE -eq 0 ]] && break
         done
 
         hide_cursor
@@ -4373,7 +4371,7 @@ nsh() {
                     search
                     ;;
                 $'\07')
-                    subshell --secret nshgrep
+                    subshell --oneshot nshgrep
                     ;;
                 $'\25')
                     scroll_up $((max_lines/2))
@@ -4431,16 +4429,16 @@ nsh() {
                             subshell "git commit$sel"
                             ;;
                         u|revert)
-                            subshell --secret nshgit revert "$sel"
+                            subshell --oneshot nshgit revert "$sel"
                             ;;
                         l|log)
-                            subshell --secret "nshgit log$sel"
+                            subshell --oneshot "nshgit log$sel"
                             ;;
                         b|blame)
                             if [[ ${#selected[@]} -eq 1 ]]; then
-                                subshell --secret "nshgit blame$sel"
+                                subshell --oneshot "nshgit blame$sel"
                             elif [[ ${#selected[@]} -eq 0 ]]; then
-                                subshell --secret "nshgit blame \"${list[$focus]}\""
+                                subshell --oneshot "nshgit blame \"${list[$focus]}\""
                             else
                                 dialog 'Select one file'
                             fi
@@ -4467,7 +4465,7 @@ nsh() {
                             subshell 'git_fix_conflicts'
                             ;;
                         i)
-                            subshell --secret 'nshgit'
+                            subshell --oneshot 'nshgit'
                             ;;
                         esac
                     }
@@ -4921,7 +4919,7 @@ nsh() {
                     fi
                     ;;
                 'q')
-                    subshell --secret exit
+                    nsheval exit 0
                     ;;
                 '.')
                     [[ $show_all -eq 0 ]] && show_all=1 || show_all=0
