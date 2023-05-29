@@ -4889,14 +4889,20 @@ nsh() {
                     if [[ $KEY =~ [a-zA-Z0-9] ]]; then
                         local addr="$(pwd)" && [[ "$addr" != */ ]] && addr="$addr/"
                         local i= && for ((i=0; i<${#bookmarks[@]}; i++)); do
-                            [[ "${bookmarks[$i]}" == "$KEY"* ]] && break
+                            if [[ "${bookmarks[$i]}" == "$KEY"* ]]; then
+                                local t="${bookmarks[$i]/$KEY\ /}"
+                                dialog "$KEY was already assigned for\n  ${t/$HOME\//$tilde\/}" Replace Cancel || KEY=
+                                break
+                            fi
                         done
-                        bookmarks[$i]="$KEY $addr"
-                        i=0 && while read line; do
-                            bookmarks[$i]="$line" && ((i++))
-                        done < <(printf '%s\n' "${bookmarks[@]}" | sort)
-                        printf '%s\n' "${bookmarks[@]}" > ~/.config/nsh/bookmarks
-                        dialog "Bookmarked:\n[$KEY] $addr"
+                        if [[ -n "$KEY" ]]; then
+                            bookmarks[$i]="$KEY $addr"
+                            i=0 && while read line; do
+                                bookmarks[$i]="$line" && ((i++))
+                            done < <(printf '%s\n' "${bookmarks[@]}" | sort)
+                            printf '%s\n' "${bookmarks[@]}" > ~/.config/nsh/bookmarks
+                            dialog "Bookmarked:\n[$KEY] $addr"
+                        fi
                     else
                         dialog "This KEY cannot be used for bookmarks"
                     fi
