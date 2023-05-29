@@ -2843,7 +2843,7 @@ nsh() {
             elif [[ $op == mv ]]; then
                 draw_shortcut "p" "Paste " "D" "Delete" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             else
-                draw_shortcut ENTER Select "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+                draw_shortcut SPACE Select "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             fi
         }
 
@@ -2910,8 +2910,8 @@ nsh() {
                         yopen "$path/.."
                     fi
                     ;;
-                $'\n'|'l')
-                    if [[ $KEY == $'\n' && $op == bring ]]; then
+                $'\n'|'l'|' ')
+                    if [[ $KEY != l && $op == bring ]]; then
                         dialog "$path/${ylist[$yfocus]}" Copy Move Symbolic\ Link
                         case $? in
                         0)
