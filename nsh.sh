@@ -1759,7 +1759,7 @@ nsh() {
         else
             printf '%s\n' "${history[@]:$((history_idx-1))}" >> ~/.cache/nsh/history
         fi
-        exit
+        exit "$@"
     }
     clear_screen() {
         get_terminal_size
@@ -4919,7 +4919,7 @@ nsh() {
                     fi
                     ;;
                 'q')
-                    nsheval exit 0
+                    quit 0
                     ;;
                 '.')
                     [[ $show_all -eq 0 ]] && show_all=1 || show_all=0
