@@ -1264,7 +1264,7 @@ nshgit() {
                     [[ -z $STRING ]] && op=branch && continue
                     nshgit_run checkout -b "$STRING"
                 elif [[ -n $branch && $branch != \!* ]]; then
-                    op="$(menu --popup --header "$(nshgit_prompt --force branch \'$branch\')" 'Checkout this branch' 'Merge this branch' 'Move the current branch on to this' 'Explore this branch' 'Delete this branch')"
+                    op="$(menu --popup --header "$(nshgit_prompt --force branch \'$branch\')" 'Checkout this branch' 'Merge this branch' 'Move the current branch on to this' 'Explore this branch' 'Compare this branch and the current branch' 'Delete this branch')"
                     if [[ $op == Checkout* ]]; then
                         nshgit_prompt --force "checkout $branch"
                         nshgit_run checkout "${branch#origin\/}"
@@ -1274,6 +1274,9 @@ nshgit() {
                         branch="!rebase $branch"
                     elif [[ $op == Explore* ]]; then
                         branch="!view $branch"
+                    elif [[ $op == Compare* ]]; then
+                        nshgit_prompt "diff $(git_branch_name) - $branch"
+                        nshgit_run diff "$(git_branch_name)..$branch" | git_diff_formatter
                     elif [[ $op == Delete* ]]; then
                         branch="!delete $branch"
                     else
@@ -1285,7 +1288,7 @@ nshgit() {
                     [[ $branch == +\ * ]] && continue
                     local path=
                     while true; do
-                        local p="$((echo -ne "\r$postfix\r$git_stat "; comand git show --color=always "$branch:$path") | sed "s/.*\/$/$NSH_COLOR_DIR&\x1b\[0m/" | menu -r --popup --header - --key h 'echo ..' --footer "$(draw_shortcut c Checkout y Copy)" --key c 'echo !checkout $1' --key y 'echo !copy $1')"
+                        local p="$((echo -ne "\r$postfix\r$git_stat "; command git show --color=always "$branch:$path") | sed "s/.*\/$/$NSH_COLOR_DIR&\x1b\[0m/" | menu -r --popup --header - --key h 'echo ..' --footer "$(draw_shortcut c Checkout y Copy)" --key c 'echo !checkout $1' --key y 'echo !copy $1')"
                         [[ -z $p ]] && break
                         p="$(strip_escape "$p")"
                         if [[ $p == \!* ]]; then
@@ -1405,18 +1408,6 @@ nshgit() {
         [[ -n $param ]] && break
         op=
     done
-}
-
-python() {
-    if [[ $# -gt 0 ]]; then
-        __python_stderr__() {
-            sed -e 's/\(\ \ File\ \)\"\(.*\)\",\ line\ \([0-9]*\),/\x1b[1;35m\2\x1b[0m:\x1b[1;33m\3\x1b[0m/'
-#sed -e 's/\(\ \ File\ \)\"\(.*\)\",\ line\ /!!!!!!!!!!!!!!!!!!!!/'
-        }
-        command python "$@" 2> >(__python_stderr__)
-    else
-        command python "$@"
-    fi
 }
 
 get_num_words() {
@@ -1768,7 +1759,7 @@ nsh() {
         else
             printf '%s\n' "${history[@]:$((history_idx-1))}" >> ~/.cache/nsh/history
         fi
-        exit
+        exit "$@"
     }
     clear_screen() {
         get_terminal_size
@@ -1836,6 +1827,9 @@ nsh() {
             fi
             printf '\e[K'
         else
+            if [[ -z $NEXT_KEY && -n $STRING && $cursor -eq ${#STRING} ]] && [[ -z $STRING_SUGGEST || $STRING_SUGGEST != $STRING* ]]; then
+                STRING_SUGGEST="$(printf "%s\n" "${history[@]}" | grep "^${STRING//./\\.}" | tail -n 1)"
+            fi
             print_command "${STRING:0:$cursor}"
             if [ $cursor -lt ${#STRING} ]; then
                 get_cursor_pos
@@ -1852,7 +1846,6 @@ nsh() {
             fi
         fi
 
-        [[ -z "$NEXT_KEY" ]] && get_key -t $get_key_eps NEXT_KEY
         [[ $opened != yes ]] && show_cursor
     }
     NSH_CURSORCH=$'\007'
@@ -2131,7 +2124,8 @@ nsh() {
                     [[ -h "$fname" ]] && fname="$(readlink -f "$fname" 2>/dev/null || readlink "$fname" 2>/dev/null)"
                     type="$(file "$fname" 2>/dev/null)"
                     type="${type/#$fname:/}"
-                    [[ -z "$type" && ! $(is_binary "$fname") ]] && type="text"
+                    #[[ -z "$type" && ! $(is_binary "$fname") ]] && type="text"
+                    is_binary "$fname" && type="binary"
                     mime[$idx]="$type"
                 fi
                 if [[ $type == *ASCII* || $type == *UTF* || $type == *text* ]]; then
@@ -2329,7 +2323,7 @@ nsh() {
             draw_help_line "Press $NSH_COLOR_SH1 v \e[0m to edit the file using the default editor. To check the default editor, see NSH_DEFAULT_EDITOR in config.\e[K"
             draw_help_line "See the table of important keyboard shortcuts below:\e[K"
             local c='Less' && [[ $show_all -eq 0 ]] && c='All'
-            draw_shortcut_ml "F2" "Rename" "F5" "Copy" "F6" "Move" "F7" "Mkdir" "F10" "Config" "g" "Git" "y" "Yank" "r" "Refresh" "i" "Rename" "I" "Touch" "dd" "Delete" "m" "Mark" "'" "Bookmarks" 'L' "Ln" ';' "Commands" "Tab" "View" ":" "Shell" "/" "Search" "^G" "Git" "." "Show$c" "s" "Sort" "~" "Home" "2" "2048"
+            draw_shortcut_ml F2 Rename F5 Copy F6 Move F7 Mkdir F10 Config g Git y Yank P Paste r Refresh i Rename I Touch dd Delete m Mark \' Bookmarks \; Commands Tab View \: Shell \/ Search \^G Git \. "Show$c" s Sort \~ Home 2 2048
             show_cursor
             get_key
             disable_line_wrapping
@@ -2792,7 +2786,7 @@ nsh() {
             elif [[ $op == mv ]]; then
                 printf '\e[30;42m\e[K| Move to: %s\e[0m' "$(print_filename "$path")"
             else
-                printf '\e[30;42m\e[K| Make a Symbolic link of...\e[0m'
+                printf '\e[30;42m\e[K| Bring to the left pane\e[0m'
             fi
             [[ $path == / ]] && path=
             dirs=()
@@ -2850,11 +2844,11 @@ nsh() {
             elif [[ $op == mv ]]; then
                 draw_shortcut "p" "Paste " "D" "Delete" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             else
-                draw_shortcut "L" "Make Link" "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
+                draw_shortcut SPACE Select "/" "Search" "I" "Mkdir " "~" "Home  " "//" "Root  " "'" "Jump  "
             fi
         }
 
-        if [[ ${#selected[@]} -eq 0 && $op != ln ]]; then
+        if [[ ${#selected[@]} -eq 0 && $op != bring ]]; then
             if [[ ${list[$focus]} != ".." ]]; then
                 selected[$focus]="$PWD/${list[$focus]}"
             else
@@ -2917,9 +2911,25 @@ nsh() {
                         yopen "$path/.."
                     fi
                     ;;
-                $'\n'|'l')
-                    filter=
-                    yopen "$path/${ylist[$yfocus]}"
+                $'\n'|'l'|' ')
+                    if [[ $KEY != l && $op == bring ]]; then
+                        dialog "$path/${ylist[$yfocus]}" Copy Move Symbolic\ Link
+                        case $? in
+                        0)
+                            cp -r "$path/${ylist[$yfocus]}" "$PWD"
+                            ;;
+                        1)
+                            mv "$path/${ylist[$yfocus]}" "$PWD"
+                            ;;
+                        2)
+                            ln -s "$path/${ylist[$yfocus]}" "${ylist[yfocus]}"
+                            ;;
+                        esac
+                        break
+                    else
+                        filter=
+                        yopen "$path/${ylist[$yfocus]}"
+                    fi
                     ;;
                 '.')
                     [[ $show_all -eq 0 ]] && show_all=1 || show_all=0
@@ -3355,7 +3365,7 @@ nsh() {
         disable_echo
         shopt -s nocaseglob
 
-        local secret=0 && [[ $1 == --secret ]] && secret=1 && shift
+        local oneshot=0 && [[ $1 == --oneshot ]] && oneshot=1 && shift
         local running=1
         local first=1
         local margin
@@ -3636,7 +3646,7 @@ nsh() {
                                         if [[ $1 == help* ]]; then
                                             line="${line%,}"
                                             #[[ ${#line} -lt 20 ]] && line="$line$(printf '%*s' $((20-${#line})) ' ')"
-                                            line="$line$def"$'\e[0m'" ${1##*=}" && def=
+                                            line="$line$def"$'\e[0m'"  ${1##*=}" && def=
                                         fi
                                     else
                                         [[ -n "$line" ]] && line="$line "
@@ -3660,7 +3670,7 @@ nsh() {
                                 mand="$mand $a0 ${a1^^}"
                             fi
                             usage+=("$u")
-                        done < <(grep add_argument "$fname" 2>/dev/null | tr -d '\r' 2>/dev/null | sed -e "s/'//g" -e 's/"//g' -e "s/.*add_argument.*(//")
+                        done < <(grep add_argument "$fname" 2>/dev/null | tr -d '\r' 2>/dev/null | sed -e "s/'//g" -e 's/"//g' -e "s/.*add_argument[^(]*(//")
                         local _t="Usage: python $fname$mand"
                         local i= && for i in "${usage[@]}"; do
                             [[ $i == -* || "$i" == \ \ \ \ --* ]] && _t="$_t [option]..." && break
@@ -3850,10 +3860,6 @@ nsh() {
                         continue
                     fi
                 else
-                    if [[ -n $STRING && $cursor -eq ${#STRING} ]] && [[ -z $STRING_SUGGEST || $STRING_SUGGEST != $STRING* ]]; then
-                        STRING_SUGGEST="$(printf "%s\n" "${history[@]}" | grep "^${STRING//./\\.}" | tail -n 1)"
-                        print_prompt
-                    fi
                     get_key KEY
                     NEXT_KEY=
                 fi
@@ -3911,20 +3917,18 @@ nsh() {
                         hide_usage
                         echo
                         STRING="$(echo "$STRING" | sed -e 's/^[ ]*//' -e 's/[ ]*$//')"
-                        if [ $secret -eq 0 ]; then
-                            local history_size=${#history[@]}
-                            if [[ ! -z $STRING ]] && [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$STRING" ]]; then
-                                [[ "$STRING" != exit ]] && history+=("$STRING")
-                            fi
-                            local li=$((${#history[@]}-1))
-                            if [[ $li -ge 3 && "${history[$li]}" == "${history[$((li-2))]}" && "${history[$((li-1))]}" == "${history[$((li-3))]}" ]]; then
-                                history=("${history[@]:0:$((${#history[@]}-2))}")
-                            fi
-                            if [ ${#history[@]} -ge $HISTSIZE ]; then
-                                history=("${history[@]:$((${#history[@]}-HISTSIZE))}")
-                                history_idx=$((history_idx-${#history[@]}+HISTSIZE))
-                                [[ $history_idx -lt 0 ]] && history_idx=0
-                            fi
+                        local history_size=${#history[@]}
+                        if [[ ! -z $STRING ]] && [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$STRING" ]]; then
+                            [[ "$STRING" != exit ]] && history+=("$STRING")
+                        fi
+                        local li=$((${#history[@]}-1))
+                        if [[ $li -ge 3 && "${history[$li]}" == "${history[$((li-2))]}" && "${history[$((li-1))]}" == "${history[$((li-3))]}" ]]; then
+                            history=("${history[@]:0:$((${#history[@]}-2))}")
+                        fi
+                        if [ ${#history[@]} -ge $HISTSIZE ]; then
+                            history=("${history[@]:$((${#history[@]}-HISTSIZE))}")
+                            history_idx=$((history_idx-${#history[@]}+HISTSIZE))
+                            [[ $history_idx -lt 0 ]] && history_idx=0
                         fi
                         nsheval
                         col0=$(get_cursor_col)
@@ -4120,9 +4124,17 @@ nsh() {
                         fi
                         ;;
                     [[:print:]])
-                        STRING="${STRING:0:$cursor}$KEY${STRING:$cursor}"
-                        ((cursor++))
-                        [[ $KEY == \  ]] && update_usage
+                        while true; do
+                            printf "$KEY"
+                            STRING="${STRING:0:$cursor}$KEY${STRING:$cursor}"
+                            ((cursor++))
+                            [[ $KEY == \  ]] && update_usage && print_prompt
+                            [[ -z $NEXT_KEY ]] && get_key -t 0.5 NEXT_KEY
+                            [[ -z $NEXT_KEY ]] && break
+                            [[ ! $NEXT_KEY =~ [[:print:]] ]] && break
+                            KEY="$NEXT_KEY"
+                            NEXT_KEY=
+                        done
                         print_prompt
                         [[ -z $NEXT_KEY ]] && t_cand=$(get_timestamp)
                         show_cand_delayed=FILL
@@ -4142,13 +4154,14 @@ nsh() {
                         fill_cand
                         ;;
                 esac
+                KEY=
                 [[ -z $NEXT_KEY ]] && get_key -t 0.1 NEXT_KEY
             done
             INDENT=
             STRING=
             STRING_SUGGEST=
             subprompt=
-            [[ $secret -ne 0 && $NSH_EXIT_CODE -eq 0 ]] && break
+            [[ $oneshot -ne 0 && $NSH_EXIT_CODE -eq 0 ]] && break
         done
 
         hide_cursor
@@ -4367,7 +4380,7 @@ nsh() {
                     search
                     ;;
                 $'\07')
-                    subshell --secret nshgit
+                    subshell --oneshot nshgrep
                     ;;
                 $'\25')
                     scroll_up $((max_lines/2))
@@ -4425,16 +4438,16 @@ nsh() {
                             subshell "git commit$sel"
                             ;;
                         u|revert)
-                            subshell nshgit revert "$sel"
+                            subshell --oneshot nshgit revert "$sel"
                             ;;
                         l|log)
-                            subshell --secret "nshgit log$sel"
+                            subshell --oneshot "nshgit log$sel"
                             ;;
                         b|blame)
                             if [[ ${#selected[@]} -eq 1 ]]; then
-                                subshell --secret "nshgit blame$sel"
+                                subshell --oneshot "nshgit blame$sel"
                             elif [[ ${#selected[@]} -eq 0 ]]; then
-                                subshell --secret "nshgit blame \"${list[$focus]}\""
+                                subshell --oneshot "nshgit blame \"${list[$focus]}\""
                             else
                                 dialog 'Select one file'
                             fi
@@ -4461,7 +4474,7 @@ nsh() {
                             subshell 'git_fix_conflicts'
                             ;;
                         i)
-                            subshell --secret 'nshgit'
+                            subshell --oneshot 'nshgit'
                             ;;
                         esac
                     }
@@ -4550,8 +4563,8 @@ nsh() {
                 'd'|$'\e[17~')
                     yank mv
                     ;;
-                L)
-                    yank ln
+                P)
+                    yank bring
                     ;;
                 $'\e[12~'|$'\eOQ'|'i') # F2
                     f="${list[$focus]}"
@@ -4885,14 +4898,20 @@ nsh() {
                     if [[ $KEY =~ [a-zA-Z0-9] ]]; then
                         local addr="$(pwd)" && [[ "$addr" != */ ]] && addr="$addr/"
                         local i= && for ((i=0; i<${#bookmarks[@]}; i++)); do
-                            [[ "${bookmarks[$i]}" == "$KEY"* ]] && break
+                            if [[ "${bookmarks[$i]}" == "$KEY"* ]]; then
+                                local t="${bookmarks[$i]/$KEY\ /}"
+                                dialog "$KEY was already assigned for\n  ${t/$HOME\//$tilde\/}" Replace Cancel || KEY=
+                                break
+                            fi
                         done
-                        bookmarks[$i]="$KEY $addr"
-                        i=0 && while read line; do
-                            bookmarks[$i]="$line" && ((i++))
-                        done < <(printf '%s\n' "${bookmarks[@]}" | sort)
-                        printf '%s\n' "${bookmarks[@]}" > ~/.config/nsh/bookmarks
-                        dialog "Bookmarked:\n[$KEY] $addr"
+                        if [[ -n "$KEY" ]]; then
+                            bookmarks[$i]="$KEY $addr"
+                            i=0 && while read line; do
+                                bookmarks[$i]="$line" && ((i++))
+                            done < <(printf '%s\n' "${bookmarks[@]}" | sort)
+                            printf '%s\n' "${bookmarks[@]}" > ~/.config/nsh/bookmarks
+                            dialog "Bookmarked:\n[$KEY] $addr"
+                        fi
                     else
                         dialog "This KEY cannot be used for bookmarks"
                     fi
@@ -4915,7 +4934,7 @@ nsh() {
                     fi
                     ;;
                 'q')
-                    subshell --secret exit
+                    quit 0
                     ;;
                 '.')
                     [[ $show_all -eq 0 ]] && show_all=1 || show_all=0
