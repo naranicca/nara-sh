@@ -1288,7 +1288,7 @@ nshgit() {
                     [[ $branch == +\ * ]] && continue
                     local path=
                     while true; do
-                        local p="$((echo -ne "\r$postfix\r$git_stat "; comand git show --color=always "$branch:$path") | sed "s/.*\/$/$NSH_COLOR_DIR&\x1b\[0m/" | menu -r --popup --header - --key h 'echo ..' --footer "$(draw_shortcut c Checkout y Copy)" --key c 'echo !checkout $1' --key y 'echo !copy $1')"
+                        local p="$((echo -ne "\r$postfix\r$git_stat "; command git show --color=always "$branch:$path") | sed "s/.*\/$/$NSH_COLOR_DIR&\x1b\[0m/" | menu -r --popup --header - --key h 'echo ..' --footer "$(draw_shortcut c Checkout y Copy)" --key c 'echo !checkout $1' --key y 'echo !copy $1')"
                         [[ -z $p ]] && break
                         p="$(strip_escape "$p")"
                         if [[ $p == \!* ]]; then
