@@ -4124,9 +4124,17 @@ nsh() {
                         fi
                         ;;
                     [[:print:]])
-                        STRING="${STRING:0:$cursor}$KEY${STRING:$cursor}"
-                        ((cursor++))
-                        [[ $KEY == \  ]] && update_usage
+                        while true; do
+                            printf "$KEY"
+                            STRING="${STRING:0:$cursor}$KEY${STRING:$cursor}"
+                            ((cursor++))
+                            [[ $KEY == \  ]] && update_usage && print_prompt
+                            [[ -z $NEXT_KEY ]] && get_key -t 0.5 NEXT_KEY
+                            [[ -z $NEXT_KEY ]] && break
+                            [[ ! $NEXT_KEY =~ [[:print:]] ]] && break
+                            KEY="$NEXT_KEY"
+                            NEXT_KEY=
+                        done
                         print_prompt
                         [[ -z $NEXT_KEY ]] && t_cand=$(get_timestamp)
                         show_cand_delayed=FILL
