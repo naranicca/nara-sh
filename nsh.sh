@@ -2124,7 +2124,8 @@ nsh() {
                     [[ -h "$fname" ]] && fname="$(readlink -f "$fname" 2>/dev/null || readlink "$fname" 2>/dev/null)"
                     type="$(file "$fname" 2>/dev/null)"
                     type="${type/#$fname:/}"
-                    [[ -z "$type" && ! $(is_binary "$fname") ]] && type="text"
+                    #[[ -z "$type" && ! $(is_binary "$fname") ]] && type="text"
+                    is_binary "$fname" && type="binary"
                     mime[$idx]="$type"
                 fi
                 if [[ $type == *ASCII* || $type == *UTF* || $type == *text* ]]; then
