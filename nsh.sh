@@ -4124,6 +4124,8 @@ nsh() {
                         fi
                         ;;
                     [[:print:]])
+                        printf "\e[${NSH_COLOR_BKG}m"
+                        [[ $KEY == '-' && $STRING == *\  ]] && printf "$NSH_COLOR_VAR"
                         while true; do
                             printf "$KEY"
                             STRING="${STRING:0:$cursor}$KEY${STRING:$cursor}"
