@@ -1218,11 +1218,11 @@ nshgit() {
             [[ $op == D\ * ]] && op="${op#D }" && nshgit_prompt --force "diff $op" && echo "$op was deleted" && op= && continue
             [[ $op == \?\?\ * ]] && op=(add "$(nshgit_strip_filename "${op#\?\? }")")
         fi
-        case "$op" in
+        case "${op[0]}" in
             add*)
                 op=("${op[@]:1}")
                 if [[ -n $param || $(menu --popup --header "$(nshgit_prompt --force "add $(print_filename "$op")")" OK Cancel) == OK ]]; then
-                    nshgit_run add "${op[@]}" && [[ $(menu --popup --header "$(nshgit_prompt --force Commit?)" OK Not\ now) == OK ]] && op=commit && continue
+                    nshgit_run add "${op[@]}" && [[ $(menu --popup --header "$(nshgit_prompt --force Commit?)" OK Not\ now) == OK ]] && op=(commit "${op[@]}") && continue
                 fi
                 ;;
             pull)
@@ -1252,7 +1252,7 @@ nshgit() {
             commit)
                 op=("${op[@]:1}")
                 nshgit_prompt commit "${op[@]}"
-                nshgit_run commit "${op:-.}"
+                nshgit_run commit "${op[@]:-.}"
                 ;;
             log|log\ *)
                 op=("${op[@]:1}")
