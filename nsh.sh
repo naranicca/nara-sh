@@ -370,9 +370,11 @@ get_key_debug() {
 STRING=
 read_string() {
     local highlight=0 && [[ $1 == --highlight ]] && highlight=1 && shift
+    local filename=0 && [[ $1 == --filename ]] && filename=1 && shift
     STRING="$1"
     local default="$STRING"
     local cursor=${#STRING}
+    [[ $filename -ne 0 && "$STRING" == *\.* ]] && filename=".${STRING##*.}" && cursor=$((cursor-${#filename}))
     get_cursor_pos
     show_cursor
     while true; do
@@ -4576,7 +4578,7 @@ nsh() {
                             printf '%*s' "$list_width" ' '
                             local c=2 && [[ ${#git_mark[@]} -gt 0 ]] && ((c++))
                             move_cursor "$((focus-y+2));$c"
-                            read_string "$f"
+                            read_string --filename "$f"
                             hide_cursor
                             if [[ -n $STRING && "$f" != "$STRING" ]]; then
                                 if [[ -e "$STRING" ]]; then
