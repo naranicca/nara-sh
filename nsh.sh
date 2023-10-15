@@ -1217,8 +1217,12 @@ nshgit() {
             [[ $op == \!refresh ]] && op= && continue
             [[ $op == D\ * ]] && op="${op#D }" && nshgit_prompt --force "diff $op" && echo "$op was deleted" && op= && continue
             [[ $op == \?\?\ * ]] && op=(add "$(nshgit_strip_filename "${op#\?\? }")")
+            [[ $op == UU* ]] && op=(view "$(nshgit_strip_filename "${op#UU }")")
         fi
         case "${op[0]}" in
+            view)
+                "$NSH_DEFAULT_EDITOR" "${op[@]:1}"
+                ;;
             add*)
                 op=("${op[@]:1}")
                 if [[ -n $param || $(menu --popup --header "$(nshgit_prompt --force "add $(print_filename "$op")")" OK Cancel) == OK ]]; then
