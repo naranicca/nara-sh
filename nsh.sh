@@ -2928,7 +2928,7 @@ nsh() {
                             mv "$path/${ylist[$yfocus]}" "$PWD"
                             ;;
                         2)
-                            ln -s "$path/${ylist[$yfocus]}" "${ylist[yfocus]}"
+                            ln -s "$path/${ylist[$yfocus]}" "${ylist[yfocus]%/}"
                             ;;
                         esac
                         break
