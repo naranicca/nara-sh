@@ -3968,7 +3968,13 @@ nsh() {
                         ;;
                     $'\e[C') # right
                         if [ $cursor -lt ${#STRING} ]; then
-                            cursor=$((cursor+1))
+                            while true; do
+                                if [[ $cursor -lt ${#STRING} ]]; then
+                                    cursor=$((cursor+1))
+                                fi
+                                get_key -t 0.5 NEXT_KEY
+                                [[ $NEXT_KEY != $KEY ]] && break
+                            done
                             print_prompt
                             fill_cand
                         elif [[ -n $STRING_SUGGEST ]]; then
@@ -3978,11 +3984,16 @@ nsh() {
                         fi
                         ;;
                     $'\e[D') # left
-                        if [ $cursor -gt 0 ]; then
-                            ((cursor--))
-                            print_prompt
-                            fill_cand
-                        fi
+                        while true; do
+                            if [ $cursor -gt 0 ]; then
+                                ((cursor--))
+                                printf "$KEY"
+                            fi
+                            get_key -t 0.5 NEXT_KEY
+                            [[ $NEXT_KEY != $KEY ]] && break
+                        done
+                        print_prompt
+                        fill_cand
                         ;;
                     $'\e[1~'|$'\e[H') # home
                         cursor=0
