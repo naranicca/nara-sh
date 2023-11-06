@@ -3737,6 +3737,7 @@ nsh() {
             [[ -d "$STRING" ]] && STRING="cd $STRING"
             [[ -z $STRING ]] && return
             [[ $STRING == cd\ * ]] && STRING="$STRING && ls $LS_COLOR_PARAM && pwd >~/.cache/nsh/lastdir"
+            [[ $STRING == git ]] && STRING="nshgit"
             [[ $STRING == git\ checkout\ * && $(get_num_words $STRING) -eq 3 && $STRING == *\ origin/* ]] && STRING="git checkout ${STRING##*origin/}"
             if [[ $STRING == exit ]]; then
                 quit
