@@ -4615,12 +4615,20 @@ nsh() {
                 I) # make a directory or a file
                     dialog --input 'Make a directory or a file'
                     if [[ -n $STRING ]]; then
-                        if [[ $STRING == */ ]]; then
-                            local err="$(mkdir "$STRING" 2>&1)"
+                        if [[ -e "$STRING" ]]; then
+                            dialog "$STRING already exists"
                         else
-                            local err="$(touch "$STRING" 2>&1)"
+                            if [[ $STRING != */ && $STRING != *\.* ]]; then
+                                dialog "Is $STRING a file?" "File" "Directory"
+                                [[ $? == 1 ]] && STRING="$STRING/"
+                            fi
+                            if [[ $STRING == */ ]]; then
+                                local err="$(mkdir "$STRING" 2>&1)"
+                            else
+                                local err="$(touch "$STRING" 2>&1)"
+                            fi
+                            [[ -n $err ]] && dialog "$err"
                         fi
-                        [[ -n $err ]] && dialog "$err"
                         last_item="$PWD/${STRING%/}"
                         update
                     fi
