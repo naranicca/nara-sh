@@ -1159,7 +1159,7 @@ git_log() {
                 Edit\ *)
                     commit="$(command git log --oneline | grep -n "$commit ")" && commit="${commit%%:*}"
                     nshgit_prompt --force edit last "$commit" commits
-                    nshgit_run rebase -i "@~$commit"
+                    nshgit_run rebase -i "@~$commit" && [[ $(menu --header 'push?' OK Cancel) == OK ]] && nshgit_run push origin "$(git_branch_name)" -f
                     ;;
                 esac
             fi
