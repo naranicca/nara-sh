@@ -3741,13 +3741,13 @@ nsh() {
             [[ $STRING == git\ checkout\ * && $(get_num_words $STRING) -eq 3 && $STRING == *\ origin/* ]] && STRING="git checkout ${STRING##*origin/}"
             if [[ $STRING == exit ]]; then
                 quit
-            elif [[ $STRING == jobs ]]; then
+            elif [[ $STRING == jobs && "$(type jobs)" == *builtin ]]; then
                 __i="$(jobs -l | menu)"
                 [[ -n "$__i" ]] && __i="${__i#[}" && fg "%${__i%%]*}"
             elif [[ $STRING == ps ]]; then
                 local param="-o pid,command"
                 while true; do
-                    local pid=$(ps -x $param | menu --header - --footer "+ $(draw_shortcut ENTER Kill a ShowAll \/ Search z Zoom q Quit)" --searchable --popup --key a 'echo all' | awk '{print $1}')
+                    local pid=$((ps -x $param 2>/dev/null || ps -ef) | menu --header - --footer "+ $(draw_shortcut ENTER Kill a ShowAll \/ Search z Zoom q Quit)" --searchable --popup --key a 'echo all' | awk '{print $1}')
                     if [[ $pid == all ]]; then
                         if [[ $param == *\ -a\ * ]]; then
                             param="-o pid,command"
