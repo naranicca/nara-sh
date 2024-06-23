@@ -1986,7 +1986,7 @@ nsh() {
                 __mem=
             fi
             if [ -z "$diskusage" ]; then
-                diskusage="$(df -kh . | tail -n 1 | awk '{ print $3 "/" $2; }')"
+                diskusage="$(df -kh . 2>/dev/null | tail -n 1 | awk '{ print $3 "/" $2; }')"
             fi
             if [ -z "$__cpu" ]; then
                 if read __cpu user nice system idle iowait irq softirq steal guest 2>/dev/null < /proc/stat; then
@@ -4308,6 +4308,14 @@ nsh() {
                     get_key -t 1 KEY
                 fi
                 [[ ! -z "$KEY" ]] && break
+                if [[ ! -d "$PWD" ]]; then
+                    local d="$PWD"
+                    while [[ ! -d "$d" ]]; do
+                        d="${d%/*}"
+                    done
+                    command cd "$d" 2>/dev/null
+                    update
+                fi
                 draw_title
                 update_side_info
                 if [[ -n "$update_list2" ]]; then
