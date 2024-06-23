@@ -1686,7 +1686,7 @@ nsh() {
 
     # bash version check
     (man ls 2>/dev/null | grep -- '-I.*--ignore' &>/dev/null) || NSH_ITEMS_TO_HIDE=
-    get_key_eps=0.1
+    get_key_eps=0.5
     read -sn 1 -t $get_key_eps _key &>/dev/null
     [[ $? -ne 142 ]] && get_key_eps=1
 
@@ -3943,8 +3943,13 @@ nsh() {
                         ;;
                     $'\177'|$'\b')
                         if [ $cursor -gt 0 ]; then
-                            STRING="${STRING:0:$((cursor-1))}${STRING:$cursor}"
-                            ((cursor--))
+                            while true; do # for speed-up
+                                STRING="${STRING:0:$((cursor-1))}${STRING:$cursor}"
+                                ((cursor--))
+                                printf "\b\e[K"
+                                get_key -t 1 NEXT_KEY
+                                [[ $cursor == 0 || $NEXT_KEY != $KEY ]] && break
+                            done
                             update_usage
                             print_prompt
                             #fill_cand
@@ -3972,6 +3977,7 @@ nsh() {
                             while true; do
                                 if [[ $cursor -lt ${#STRING} ]]; then
                                     cursor=$((cursor+1))
+                                    printf "$KEY"
                                 fi
                                 get_key -t 0.5 NEXT_KEY
                                 [[ $NEXT_KEY != $KEY ]] && break
@@ -3988,7 +3994,7 @@ nsh() {
                         while true; do
                             if [ $cursor -gt 0 ]; then
                                 ((cursor--))
-                                printf "$KEY"
+                                printf "\b"
                             fi
                             get_key -t 0.5 NEXT_KEY
                             [[ $NEXT_KEY != $KEY ]] && break
@@ -4149,7 +4155,7 @@ nsh() {
                             STRING="${STRING:0:$cursor}$KEY${STRING:$cursor}"
                             ((cursor++))
                             [[ $KEY == \  ]] && update_usage && print_prompt
-                            [[ -z $NEXT_KEY ]] && get_key -t 0.5 NEXT_KEY
+                            [[ -z $NEXT_KEY ]] && get_key -t 2 NEXT_KEY # wait 2 sec for fast typing
                             [[ -z $NEXT_KEY ]] && break
                             [[ ! $NEXT_KEY =~ [[:print:]] ]] && break
                             KEY="$NEXT_KEY"
