@@ -1686,7 +1686,7 @@ nsh() {
 
     # bash version check
     (man ls 2>/dev/null | grep -- '-I.*--ignore' &>/dev/null) || NSH_ITEMS_TO_HIDE=
-    get_key_eps=0.5
+    get_key_eps=0.1
     read -sn 1 -t $get_key_eps _key &>/dev/null
     [[ $? -ne 142 ]] && get_key_eps=1
 
@@ -3516,7 +3516,7 @@ nsh() {
             local size=$((${#cand[@]}+${#usage[@]}))
             [[ $size -eq 0 ]] && return
             [[ "${cand[0]}" == \>\ * ]] && size=$((size-1))
-            if [[ $first != 0 && $size > 0 && -n $STRING ]]; then
+            if [[ $first != 0 && $size -gt 0 && -n $STRING ]]; then
                 first=0
                 reserve_margin
             fi
@@ -4037,7 +4037,7 @@ nsh() {
                         else
                             local idx0=0
                             [[ ${cand[0]} == \>\ * ]] && idx0=1
-                            if [[ $num_cand -eq $((1+idx0)) && $fuzzy_idx < 0 ]]; then
+                            if [[ $num_cand -eq $((1+idx0)) && $fuzzy_idx -lt 0 ]]; then
                                 local c="${cand[$idx0]}"
                                 if [[ -e "$c" ]]; then
                                     pre="${pre%\"}"
@@ -4602,7 +4602,7 @@ nsh() {
                     ;;
                 $'\e[12~'|$'\eOQ'|'i') # F2
                     f="${list[$focus]}"
-                    if [[ ${#f} > 0 && "$f" != ".." ]]; then
+                    if [[ ${#f} -gt 0 && "$f" != ".." ]]; then
                         while true; do
                             move_cursor $((focus-y+2))
                             printf '%*s' "$list_width" ' '
