@@ -4155,8 +4155,9 @@ nsh() {
                             STRING="${STRING:0:$cursor}$KEY${STRING:$cursor}"
                             ((cursor++))
                             [[ $KEY == \  ]] && update_usage && print_prompt
-                            [[ -z $NEXT_KEY ]] && get_key -t 2 NEXT_KEY # wait 2 sec for fast typing
+                            [[ -z $NEXT_KEY ]] && get_key -t 1 NEXT_KEY # wait 2 sec for fast typing
                             [[ -z $NEXT_KEY ]] && break
+                            [[ $NEXT_KEY == $'\e'* ]] && break
                             [[ ! $NEXT_KEY =~ [[:print:]] ]] && break
                             KEY="$NEXT_KEY"
                             NEXT_KEY=
