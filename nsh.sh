@@ -713,12 +713,13 @@ read_command() {
                         [[ $__NSH_SHOW_HIDDEN_FILES__ -ne 0 ]] && __NSH_SHOW_HIDDEN_FILES__=0 || __NSH_SHOW_HIDDEN_FILES__=1
                         update_dotglob
                     elif [[ -n "$cand" ]]; then
-                        word="${pre:$iword:$((ichunk-iword))}"
+                        word="${pre:$iword}"
                         echo -ne "${word//?/\\b}$cand" >&2
                         pre="${pre:0:$iword}$cand"
                         cmd="$pre$post"
                         cur=${#pre}
                         ichunk=$cur
+                        [[ -f "$word" ]] && NEXT_KEY=\  && break
                     else
                         break
                     fi
