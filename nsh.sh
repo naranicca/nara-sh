@@ -758,6 +758,5 @@ print_prompt() {
     echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
 }
 
-show_logo
-nsh
+(return 0 2>/dev/null) || (show_logo && nsh)
 
