@@ -8,6 +8,8 @@ __NSH_MENU_DEFAULT_CURSOR__=$'\e[31;40m>'
 __NSH_MENU_DEFAULT_SEL_COLOR__='32;40'
 __NSH_SHOW_HIDDEN_FILES__=0
 
+HISTSIZE=1000
+
 NSH_COLOR_TXT=$'\e[37m'
 NSH_COLOR_CMD=$'\e[32m'
 NSH_COLOR_VAR=$'\e[36m'
@@ -17,6 +19,11 @@ NSH_COLOR_DIR=$'\e[94m'
 NSH_COLOR_EXE=$'\e[32m'
 NSH_COLOR_IMG=$'\e[95m'
 NSH_COLOR_LNK=$'\e[96m'
+
+print_prompt() {
+    local NSH_PROMPT_SEPARATOR='\xee\x82\xb0'
+    echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
+}
 
 show_logo() {
     disable_line_wrapping
@@ -692,7 +699,7 @@ read_command() {
                 ;;
             $'\177'|$'\b') # backspace
                 if [[ $cur -gt 0 ]]; then
-                    echo -ne '\b \b' >&2
+                    echo -ne "\b \b$post ${post//?/\\b}\b" >&2
                     cmd="${pre%?}$post"
                     cur=$((cur-1))
                 fi
@@ -701,12 +708,13 @@ read_command() {
                 # ls abc/def/g
                 #    ^       ^
                 #    iword   ichunk
+                local quote=
                 while true; do
                     chunk="${pre:$ichunk}"
                     cand="$(eval ls -p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null)"
                     if [[ "$cand" == *$'\n'* ]]; then
                         echo -ne "${prefix//?/\\b}${pre//?/\\b}" >&2
-                        cand="$(echo "$cand" | menu --popup --header-wrap --header "$prefix$pre" --key '.' 'echo "%&\$#!@"')"
+                        cand="$(echo "$cand" | menu --popup --header-wrap --header "$prefix${pre:0:$iword}\e[32m${pre:$iword}\e[0m" --key '.' 'echo "%&\$#!@"')"
                         echo -ne "$prefix$pre" >&2
                     fi
                     if [[ $cand == "%&\$#!@" ]]; then
@@ -724,6 +732,32 @@ read_command() {
                         break
                     fi
                 done
+                word="${pre:$iword}"
+                eval "[[ -e $word ]] && echo" &>/dev/null || quote=\"
+                if [[ -n "$word" && -n $quote ]]; then
+                    echo -ne "${word//?/\\b}$quote$word$quote$post" >&2
+                    echo -ne "${post//?/\\b}" >&2
+                    pre="${pre:0:$iword}$quote${pre:$iword}$quote"
+                    cmd="$pre$post"
+                    cur=${#pre}
+                    NEXT_KEY=\ 
+                fi
+                ;;
+            $'\e[A') # Up
+                echo -ne "${prefix//?/\\b}${pre//?/\\b}" >&2
+                cmd="$(printf '%s\n' "${history[@]}" | menu --popup --header "$prefix" --initial "$HISTSIZE")"
+                cur=${#cmd}
+                echo -ne "$prefix$cmd" >&2
+                ;;
+            $'\e[B') # Down
+                ;;
+            $'\e[C') # right
+                echo -ne "${cmd:$cur:1}" >&2
+                cur=$((cur+1))
+                ;;
+            $'\e[D') # left
+                echo -ne '\b' >&2
+                cur=$((cur-1))
                 ;;
             *)
                 cmd="$pre$KEY$post"
@@ -732,7 +766,7 @@ read_command() {
                     iword=$cur
                     ichunk=$cur
                 fi
-                echo -n "$KEY" >&2
+                echo -ne "$KEY$post${post//?/\\b}" >&2
                 ;;
         esac
     done
@@ -744,19 +778,32 @@ read_command() {
 # main loop
 ############################################################################
 nsh() {
+    show_cursor
+    enable_line_wrapping
+
+    local history=() history_sizse=0
     while true; do
         local command=
         read_command --prefix "$(print_prompt)" command
 
         if [[ -n $command ]]; then
             eval "$command"
+            # save command to history
+            history_size=${#history[@]}
+            if [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$command" ]]; then
+                history+=("$command")
+                local li=$((${#history[@]}-1))
+                if [[ $li -ge 3 && "${history[$li]}" == "${history[$((li-2))]}" && "${history[$((li-1))]}" == "${history[$((li-3))]}" ]]; then
+                    history=("${history[@]:0:$((${#history[@]}-2))}")
+                fi
+                if [ ${#history[@]} -ge $HISTSIZE ]; then
+                    history=("${history[@]:$((${#history[@]}-HISTSIZE))}")
+                    history_idx=$((history_idx-${#history[@]}+HISTSIZE))
+                    [[ $history_idx -lt 0 ]] && history_idx=0
+                fi
+            fi
         fi
     done
-}
-
-print_prompt() {
-    local NSH_PROMPT_SEPARATOR='\xee\x82\xb0'
-    echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
 }
 
 (return 0 2>/dev/null) || (show_logo && nsh)
