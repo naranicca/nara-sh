@@ -195,6 +195,71 @@ fuzzy_word() {
     fi
 }
 
+ls() {
+    local list dirs=() files=() list_size
+    local line item trail
+    local len w=0 acclen=0
+    local cols rows c r c2 r2 i j
+
+    while IFS= read line; do
+        item="$(strip_escape "$line")"
+        len="$((${#item}+2))"
+        acclen=$((acclen+len))
+        [[ $len -gt $w ]] && w=$len
+        if [[ -d "$line" || "$line" == */ ]]; then
+            dirs+=("$line")
+        else
+            files+=("$line")
+        fi
+    done < <(command ls -p "$@")
+    list=("${dirs[@]}" "${files[@]}")
+    list_size=${#list[@]}
+
+    get_terminal_size
+    if [[ $acclen -le $COLUMNS ]]; then
+        cols=$list_size
+        rows=1
+    else
+        cols=$((COLUMNS/w)) && [[ $cols -lt 1 ]] && cols=1
+        rows=$(((list_size+cols-1)/cols))
+        [[ $(((cols-1)*rows)) == $list_size ]] && ccols=$((cols-1))
+    fi
+    w=$((COLUMNS/cols))
+
+    line=''
+    for ((j=0; j<rows; j++)); do
+        for ((i=0; i<cols; i++)); do
+            local idx=$((j+i*rows))
+            if [[ $rows -gt 1 ]]; then
+                get_cursor_pos && r=$__ROW__ && c=$__COL__ && [[ $c -ge $COLUMNS ]] && c=1
+                echo -ne "${list[$idx]}"
+                get_cursor_pos && r2=$__ROW__ && c2=$__COL__
+                len=$((c2-c))
+                if [[ $r2 -gt $r || $len -gt $w ]]; then
+                    trail="$(printf "%$((len-w))s" ' ')"
+                    trail="${trail//?/\\b}"
+                    echo -ne "$trail,"
+                    line+="${list[$idx]}$trail"
+                else
+                    trail="$(printf "%$((w-len))s" ' ')"
+                    echo -ne "$trail"
+                    line+="${list[$idx]}$trail"
+                fi
+            else
+                echo -ne "${list[$idx]}  "
+                list+="${list[$idx]}  "
+            fi
+        done
+        if [[ $rows -gt 1 ]]; then
+            get_cursor_pos && c=$__COL__
+            if [[ $c -lt $COLUMNS ]]; then
+                printf "%$((COLUMNS-c+1))s" ' '
+                line+="$(printf "%$((COLUMNS-c+1))s" ' ')"
+            fi
+        fi
+    done
+}
+
 menu() {
     pipe_context() {
         local c='>>'
@@ -711,7 +776,7 @@ read_command() {
                 local quote=
                 while true; do
                     chunk="${pre:$ichunk}"
-                    cand="$(eval ls -p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null)"
+                    cand="$(eval command ls -p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null)"
                     if [[ "$cand" == *$'\n'* ]]; then
                         echo -ne "${prefix//?/\\b}${pre//?/\\b}" >&2
                         cand="$(echo "$cand" | menu --popup --header-wrap --header "$prefix${pre:0:$iword}\e[32m${pre:$iword}\e[0m" --key '.' 'echo "%&\$#!@"')"
@@ -733,7 +798,9 @@ read_command() {
                     fi
                 done
                 word="${pre:$iword}"
-                eval "[[ -e $word ]] && echo" &>/dev/null || quote=\"
+                if [[ -e "$word" ]]; then
+                    eval "[[ -e $word ]] && echo" &>/dev/null || quote=\"
+                fi
                 if [[ -n "$word" && -n $quote ]]; then
                     echo -ne "${word//?/\\b}$quote$word$quote$post" >&2
                     echo -ne "${post//?/\\b}" >&2
