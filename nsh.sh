@@ -196,18 +196,15 @@ fuzzy_word() {
 }
 
 ls() {
-    local list dirs=() files=() list_size
+    local list disp dirs=() files=() list_size
     local line item trail
     local len w=0 acclen=0
     local cols rows c r c2 r2 i j
+    local x=0 y=0
 
     while IFS= read line; do
-        item="$(strip_escape "$line")"
-        len="$((${#item}+2))"
-        acclen=$((acclen+len))
-        [[ $len -gt $w ]] && w=$len
-        if [[ -d "$line" || "$line" == */ ]]; then
-            dirs+=("$line")
+        if [[ "$line" == */ ]]; then
+            dirs+=($'\e[94m'"$line")
         else
             files+=("$line")
         fi
@@ -215,6 +212,16 @@ ls() {
     list=("${dirs[@]}" "${files[@]}")
     list_size=${#list[@]}
 
+    hide_cursor >&2
+
+    disp=()
+    for ((i=0; i<list_size; i++)); do
+        item="$(strip_escape "${list[$i]}")"
+        disp[$i]=${#item}
+        len="$((${disp[$i]}+2))"
+        acclen=$((acclen+len))
+        [[ $len -gt $w ]] && w=$len
+    done
     get_terminal_size
     if [[ $acclen -le $COLUMNS ]]; then
         cols=$list_size
@@ -222,42 +229,107 @@ ls() {
     else
         cols=$((COLUMNS/w)) && [[ $cols -lt 1 ]] && cols=1
         rows=$(((list_size+cols-1)/cols))
-        [[ $(((cols-1)*rows)) == $list_size ]] && ccols=$((cols-1))
+        [[ $(((cols-1)*rows)) -ge $list_size ]] && cols=$((cols-1))
     fi
     w=$((COLUMNS/cols))
-
-    line=''
-    for ((j=0; j<rows; j++)); do
-        for ((i=0; i<cols; i++)); do
-            local idx=$((j+i*rows))
-            if [[ $rows -gt 1 ]]; then
-                get_cursor_pos && r=$__ROW__ && c=$__COL__ && [[ $c -ge $COLUMNS ]] && c=1
-                echo -ne "${list[$idx]}"
-                get_cursor_pos && r2=$__ROW__ && c2=$__COL__
-                len=$((c2-c))
-                if [[ $r2 -gt $r || $len -gt $w ]]; then
-                    trail="$(printf "%$((len-w))s" ' ')"
-                    trail="${trail//?/\\b}"
-                    echo -ne "$trail,"
-                    line+="${list[$idx]}$trail"
-                else
-                    trail="$(printf "%$((w-len))s" ' ')"
-                    echo -ne "$trail"
-                    line+="${list[$idx]}$trail"
-                fi
-            else
-                echo -ne "${list[$idx]}  "
-                list+="${list[$idx]}  "
-            fi
-        done
-        if [[ $rows -gt 1 ]]; then
-            get_cursor_pos && c=$__COL__
-            if [[ $c -lt $COLUMNS ]]; then
-                printf "%$((COLUMNS-c+1))s" ' '
-                line+="$(printf "%$((COLUMNS-c+1))s" ' ')"
-            fi
-        fi
+    for ((i=0; i<list_size; i++)); do
+        trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
+        disp[$i]="${list[$i]}$trail"
     done
+
+    draw_line() {
+        local i j
+        if [[ $rows -gt 1 ]]; then
+            for ((i=0; i<cols; i++)); do
+                local idx=$(($1+i*rows))
+                [[ $x == $i && $y == $1 ]] && echo -ne '\e[7m' >&2
+                if [[ -n "${disp[$idx]}" ]]; then
+                    echo -ne "${disp[$idx]}" >&2
+                else
+                    get_cursor_pos && r=$__ROW__ && c=$__COL__ && [[ $c -ge $COLUMNS ]] && c=1 && r=$((r+1))
+                    echo -ne "${list[$idx]:0:$w}" >&2
+                    get_cursor_pos && r2=$__ROW__ && c2=$__COL__
+                    len=$((c2-c))
+                    if [[ $r2 -gt $r || $len -gt $w ]]; then
+                        trail="$(printf "%$((len-w))s" ' ')"
+                        trail="${trail//?/\\b}"
+                        echo -ne "$trail" >&2
+                    else
+                        trail="$(printf "%$((w-len))s" ' ')"
+                        echo -ne "$trail" >&2
+                    fi
+                fi
+                echo -ne '\e[0m' >&2
+            done
+        else
+            for ((i=0; i<cols; i++)); do
+                [[ $x == $i && $y == $1 ]] && echo -ne '\e[7m' >&2
+                echo -ne "${list[$i]}  \e[0m" >&2
+            done
+        fi
+        get_cursor_pos && r=$((__ROW__-1)) && c=$((__COL__-1))
+        if [[ $c -eq 1 ]]; then
+            echo -ne '\b' >&2
+        elif [[ $c -lt $COLUMNS ]]; then
+            printf "%$((COLUMNS-c))s" ' ' >&2
+        fi
+    }
+
+    for ((j=0; j<rows; j++)); do
+        draw_line $j
+    done
+
+    local back="$(printf "%${COLUMNS}s" ' ')" && back="${back//?/\\b}"
+    for ((i=0; i<rows; i++)); do echo -ne "$back" >&2 ; done
+    while true; do
+        get_key KEY
+        case $KEY in
+            l)
+                if [[ $x -lt $((cols-1)) ]]; then
+                    x=$((x+1))
+                    draw_line $y
+                    echo -ne "$back" >&2
+                fi
+                ;;
+            h)
+                if [[ $x -gt 0 ]]; then
+                    x=$((x-1))
+                    draw_line $y
+                    echo -ne "$back" >&2
+                fi
+                ;;
+            j)
+                if [[ $y -lt $((rows-1)) ]]; then
+                    y=$((y+1))
+                    draw_line $((y-1))
+                    draw_line $y
+                    echo -ne "$back" >&2
+                fi
+                ;;
+            k)
+                if [[ $y -gt 0 ]]; then
+                    y=$((y-1))
+                    draw_line $((y+1))
+                    echo -ne "$back$back" >&2
+                    draw_line $y
+                    echo -ne "$back" >&2
+                fi
+                ;;
+            $'\n')
+                idx=$((y+x*rows))
+                echo "${list[$idx]}"
+                break
+            q)
+                x=-1 # to lose focus
+                break
+                ;;
+        esac
+    done
+
+    for ((j=$y; j<rows; j++)); do
+        draw_line $j
+    done
+    show_cursor >&2
 }
 
 menu() {
