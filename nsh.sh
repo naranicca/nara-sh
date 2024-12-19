@@ -196,23 +196,45 @@ fuzzy_word() {
 }
 
 ls() {
-    local list disp dirs=() files=() list_size
-    local line item trail
+    local line dirs files
+    if [[ $# -gt 0 ]]; then
+        command ls "$@"
+    else
+        while true; do
+            dirs=() files=()
+            [[ "$(pwd)" != / ]] && dirs+=($'\e[94m../')
+            while IFS= read line; do
+                if [[ -d "$line" ]]; then
+                    dirs+=($'\e[94m'"$line/")
+                else
+                    files+=("$line")
+                fi
+            done < <(command ls)
+            local ret="$(menu2d "${dirs[@]}" "${files[@]}")"
+            [[ -z "$ret" ]] && break
+            ret="$(strip_escape "$ret")"
+            [[ ! -d "$ret" ]] && break
+            cd "$ret"
+            print_prompt; echo ls
+        done
+    fi
+}
+
+menu2d() {
+    local list disp list_size
+    local item trail
     local len w=0 acclen=0
     local cols rows c r c2 r2 i j
     local x=0 y=0
 
-    while IFS= read line; do
-        if [[ "$line" == */ ]]; then
-            dirs+=($'\e[94m'"$line")
-        else
-            files+=("$line")
-        fi
-    done < <(command ls -p "$@")
-    list=("${dirs[@]}" "${files[@]}")
+    while [[ $# -gt 0 ]]; do
+        list+=("$1")
+        shift
+    done
     list_size=${#list[@]}
 
     hide_cursor >&2
+    disable_echo >&2
 
     disp=()
     for ((i=0; i<list_size; i++)); do
@@ -231,6 +253,7 @@ ls() {
         rows=$(((list_size+cols-1)/cols))
         [[ $(((cols-1)*rows)) -ge $list_size ]] && cols=$((cols-1))
     fi
+    [[ $rows -ge $((LINES-1)) ]] && rows=$((LINES-1))
     w=$((COLUMNS/cols))
     for ((i=0; i<list_size; i++)); do
         trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
@@ -268,9 +291,7 @@ ls() {
             done
         fi
         get_cursor_pos && r=$((__ROW__-1)) && c=$((__COL__-1))
-        if [[ $c -eq 1 ]]; then
-            echo -ne '\b' >&2
-        elif [[ $c -lt $COLUMNS ]]; then
+        if [[ $c -lt $COLUMNS ]]; then
             printf "%$((COLUMNS-c))s" ' ' >&2
         fi
     }
@@ -304,6 +325,12 @@ ls() {
                     draw_line $((y-1))
                     draw_line $y
                     echo -ne "$back" >&2
+                elif [[ $x -lt $((cols-1)) ]]; then
+                    y=0 x=$((x+1))
+                    draw_line $((rows-1))
+                    for ((i=0; i<rows; i++)); do echo -ne "$back" >&2 ; done
+                    draw_line 0
+                    echo -ne "$back" >&2
                 fi
                 ;;
             k)
@@ -313,13 +340,19 @@ ls() {
                     echo -ne "$back$back" >&2
                     draw_line $y
                     echo -ne "$back" >&2
+                elif [[ $x -gt 0 ]]; then
+                    x=$((x-1)) y=$((rows-1))
+                    for ((i=0; i<rows; i++)); do draw_line $i; done
+                    echo -ne "$back" >&2
                 fi
                 ;;
             $'\n')
                 idx=$((y+x*rows))
+                enable_echo >&2
                 echo "${list[$idx]}"
                 break
-            q)
+                ;;
+            q|$'\e')
                 x=-1 # to lose focus
                 break
                 ;;
@@ -330,6 +363,7 @@ ls() {
         draw_line $j
     done
     show_cursor >&2
+    enable_echo >&2
 }
 
 menu() {
