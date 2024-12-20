@@ -300,8 +300,8 @@ menu2d() {
         draw_line $j
     done
 
-    local back="$(printf "%${COLUMNS}s" ' ')" && back="${back//?/\\b}"
-    for ((i=0; i<rows; i++)); do echo -ne "$back" >&2 ; done
+    echo -ne $'\e'"[${COLUMNS}D" >&2
+    for ((i=1; i<rows; i++)); do echo -ne $'\e[A' >&2 ; done
     while true; do
         get_key KEY
         case $KEY in
@@ -309,14 +309,14 @@ menu2d() {
                 if [[ $x -lt $((cols-1)) ]]; then
                     x=$((x+1))
                     draw_line $y
-                    echo -ne "$back" >&2
+                    echo -ne $'\e'"[${COLUMNS}D" >&2
                 fi
                 ;;
             h)
                 if [[ $x -gt 0 ]]; then
                     x=$((x-1))
                     draw_line $y
-                    echo -ne "$back" >&2
+                    echo -ne $'\e'"[${COLUMNS}D" >&2
                 fi
                 ;;
             j)
@@ -324,26 +324,30 @@ menu2d() {
                     y=$((y+1))
                     draw_line $((y-1))
                     draw_line $y
-                    echo -ne "$back" >&2
+                    echo -ne $'\e'"[${COLUMNS}D" >&2
                 elif [[ $x -lt $((cols-1)) ]]; then
                     y=0 x=$((x+1))
                     draw_line $((rows-1))
-                    for ((i=0; i<rows; i++)); do echo -ne "$back" >&2 ; done
+                    echo -ne $'\e['"${COLUMNS}D" >&2
+                    echo -ne $'\e['"$((rows-1))A" >&2
                     draw_line 0
-                    echo -ne "$back" >&2
+                    echo -ne $'\e'"[${COLUMNS}D" >&2
                 fi
                 ;;
             k)
                 if [[ $y -gt 0 ]]; then
                     y=$((y-1))
                     draw_line $((y+1))
-                    echo -ne "$back$back" >&2
+                    echo -ne $'\e['"${COLUMNS}D"$'\e[A' >&2
                     draw_line $y
-                    echo -ne "$back" >&2
+                    echo -ne $'\e'"[${COLUMNS}D" >&2
                 elif [[ $x -gt 0 ]]; then
                     x=$((x-1)) y=$((rows-1))
-                    for ((i=0; i<rows; i++)); do draw_line $i; done
-                    echo -ne "$back" >&2
+                    draw_line 0
+                    echo -ne $'\e'"[${COLUMNS}D" >&2
+                    for ((i=1; i<rows; i++)); do echo -ne $'\e[B' >&2 ; done
+                    draw_line $((rows-1))
+                    echo -ne $'\e'"[${COLUMNS}D" >&2
                 fi
                 ;;
             $'\n')
