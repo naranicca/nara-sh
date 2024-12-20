@@ -290,9 +290,9 @@ menu2d() {
                 echo -ne "${list[$i]}  \e[0m" >&2
             done
         fi
-        get_cursor_pos && r=$((__ROW__-1)) && c=$((__COL__-1))
-        if [[ $c -lt $COLUMNS ]]; then
-            printf "%$((COLUMNS-c))s" ' ' >&2
+        get_cursor_pos
+        if [[ $__COL__ -lt $COLUMNS ]]; then
+            printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
         fi
     }
 
