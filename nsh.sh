@@ -33,7 +33,6 @@ show_logo() {
   \ \   |  _ \/ __|  _ \
   / /   | | | \__ \ | | |
  /_/    |_| |_|___/_| |_| ' $__NSH_VERSION__
-    echo "        nsh is Not a SHell"
     echo " designed by naranicca"
     echo
     enable_line_wrapping
@@ -137,6 +136,13 @@ strip_escape() {
     fi
 }
 
+pipe_context() {
+    local c='>>'
+    [[ -t 0 ]] && c='->'
+    [[ -t 1 ]] && c="${c%?}-"
+    echo "$c"
+}
+
 get_num_cpu() {
     (grep 'physical id' /proc/cpuinfo 2>/dev/null | wc -l 2>/dev/null) || echo 1
 }
@@ -197,15 +203,13 @@ fuzzy_word() {
 
 ls() {
     local line dirs files
-    if [[ $# -gt 0 ]]; then
-        command ls "$@"
-    else
+    if [[ $# -eq 0 && -t 0 && -t 1 ]]; then
         while true; do
             dirs=() files=()
-            [[ "$(pwd)" != / ]] && dirs+=($'\e[94m../')
+            [[ "$(pwd)" != / ]] && dirs+=("$NSH_COLOR_DIR../")
             while IFS= read line; do
                 if [[ -d "$line" ]]; then
-                    dirs+=($'\e[94m'"$line/")
+                    dirs+=("$NSH_COLOR_DIR$line/")
                 else
                     files+=("$line")
                 fi
@@ -217,6 +221,8 @@ ls() {
             cd "$ret"
             print_prompt; echo ls
         done
+    else
+        command ls "$@"
     fi
 }
 
@@ -225,7 +231,8 @@ menu2d() {
     local item trail
     local len w=0 acclen=0
     local cols rows c r c2 r2 i j
-    local x=0 y=0
+    local x=0 y=0 icol irow
+    local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
 
     while [[ $# -gt 0 ]]; do
         list+=("$1")
@@ -238,8 +245,7 @@ menu2d() {
 
     disp=()
     for ((i=0; i<list_size; i++)); do
-        item="$(strip_escape "${list[$i]}")"
-        disp[$i]=${#item}
+        disp[$i]="$(wc "$wcparam" <<< "$(strip_escape "${list[$i]}")")"
         len="$((${disp[$i]}+2))"
         acclen=$((acclen+len))
         [[ $len -gt $w ]] && w=$len
@@ -264,25 +270,9 @@ menu2d() {
         local i j
         if [[ $rows -gt 1 ]]; then
             for ((i=0; i<cols; i++)); do
-                local idx=$(($1+i*rows))
+                local idx=$((($1+irow)+(i+icol)*rows))
                 [[ $x == $i && $y == $1 ]] && echo -ne '\e[7m' >&2
-                if [[ -n "${disp[$idx]}" ]]; then
-                    echo -ne "${disp[$idx]}" >&2
-                else
-                    get_cursor_pos && r=$__ROW__ && c=$__COL__ && [[ $c -ge $COLUMNS ]] && c=1 && r=$((r+1))
-                    echo -ne "${list[$idx]:0:$w}" >&2
-                    get_cursor_pos && r2=$__ROW__ && c2=$__COL__
-                    len=$((c2-c))
-                    if [[ $r2 -gt $r || $len -gt $w ]]; then
-                        trail="$(printf "%$((len-w))s" ' ')"
-                        trail="${trail//?/\\b}"
-                        echo -ne "$trail" >&2
-                    else
-                        trail="$(printf "%$((w-len))s" ' ')"
-                        echo -ne "$trail" >&2
-                    fi
-                fi
-                echo -ne '\e[0m' >&2
+                echo -ne "${disp[$idx]}\e[0m" >&2
             done
         else
             for ((i=0; i<cols; i++)); do
@@ -325,11 +315,18 @@ menu2d() {
                     draw_line $((y-1))
                     draw_line $y
                     echo -ne $'\e'"[${COLUMNS}D" >&2
+                elif [[ $cols == 1 && $rows -gt 1 ]]; then
+                    if [[ $irow -lt $((list_size-rows)) ]]; then
+                        irow=$((irow+1))
+                        echo -ne $'\e['"$((rows-1))A" >&2
+                        for ((i=0; i<rows; i++)); do draw_line $i; done
+                        echo -ne $'\e['"${COLUMNS}D" >&2
+                    fi
                 elif [[ $x -lt $((cols-1)) ]]; then
                     y=0 x=$((x+1))
                     draw_line $((rows-1))
                     echo -ne $'\e['"${COLUMNS}D" >&2
-                    echo -ne $'\e['"$((rows-1))A" >&2
+                    [[ $rows -gt 1 ]] && echo -ne $'\e['"$((rows-1))A" >&2
                     draw_line 0
                     echo -ne $'\e'"[${COLUMNS}D" >&2
                 fi
@@ -341,6 +338,13 @@ menu2d() {
                     echo -ne $'\e['"${COLUMNS}D"$'\e[A' >&2
                     draw_line $y
                     echo -ne $'\e'"[${COLUMNS}D" >&2
+                elif [[ $cols == 1 && $rows -gt 1 ]]; then
+                    if [[ $irow -gt 0 ]]; then
+                        irow=$((irow-1))
+                        for ((i=0; i<rows; i++)); do draw_line $i; done
+                        echo -ne $'\e'"[${COLUMNS}D" >&2
+                        echo -ne $'\e['"$((rows-1))A" >&2
+                    fi
                 elif [[ $x -gt 0 ]]; then
                     x=$((x-1)) y=$((rows-1))
                     draw_line 0
@@ -351,7 +355,7 @@ menu2d() {
                 fi
                 ;;
             $'\n')
-                idx=$((y+x*rows))
+                idx=$(((y+irow)+(x+icol)*rows))
                 enable_echo >&2
                 echo "${list[$idx]}"
                 break
@@ -371,13 +375,6 @@ menu2d() {
 }
 
 menu() {
-    pipe_context() {
-        local c='>>'
-        [[ -t 0 ]] && c='->'
-        [[ -t 1 ]] && c="${c%?}-"
-        echo "$c"
-    }
-
     disable_line_wrapping >&2
     hide_cursor >&2
 
@@ -884,12 +881,13 @@ read_command() {
                 #    ^       ^
                 #    iword   ichunk
                 local quote=
+                local last
                 while true; do
                     chunk="${pre:$ichunk}"
                     cand="$(eval command ls -p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null)"
                     if [[ "$cand" == *$'\n'* ]]; then
                         echo -ne "${prefix//?/\\b}${pre//?/\\b}" >&2
-                        cand="$(echo "$cand" | menu --popup --header-wrap --header "$prefix${pre:0:$iword}\e[32m${pre:$iword}\e[0m" --key '.' 'echo "%&\$#!@"')"
+                        cand="$(echo -e "$last\n$cand" | menu --popup --header-wrap --header "$prefix${pre:0:$iword}\e[32m${pre:$iword}\e[0m" --key '.' 'echo "%&\$#!@"')"
                         echo -ne "$prefix$pre" >&2
                     fi
                     if [[ $cand == "%&\$#!@" ]]; then
@@ -902,7 +900,8 @@ read_command() {
                         cmd="$pre$post"
                         cur=${#pre}
                         ichunk=$cur
-                        [[ -f "$word" ]] && NEXT_KEY=\  && break
+                        [[ -f "$word" || "$last" == "$cand" ]] && NEXT_KEY=\  && break
+                        last="$cand"
                     else
                         break
                     fi
