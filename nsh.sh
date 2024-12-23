@@ -241,7 +241,7 @@ menu2d() {
     local item trail
     local len w=0
     local cols rows c r i j
-    local x=0 y=0 icol irow
+    local x=0 y=0 icol irow isize
     local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
     local color_func
 
@@ -270,6 +270,7 @@ menu2d() {
     cols=$((COLUMNS/w)) && [[ $cols -lt 1 ]] && cols=1
     rows=$(((list_size+cols-1)/cols))
     [[ $(((cols-1)*rows)) -ge $list_size ]] && cols=$((cols-1))
+    isize=$cols && [[ $cols -eq 1 ]] && isize=$rows
     [[ $rows -ge $((LINES-1)) ]] && rows=$((LINES-1))
     w=$((COLUMNS/cols))
     for ((i=0; i<list_size; i++)); do
@@ -303,24 +304,30 @@ menu2d() {
         case $KEY in
             l)
                 if [[ $x -lt $((cols-1)) ]]; then
-                    x=$((x+1))
-                    draw_line $y
-                    echo -ne $'\e'"[${COLUMNS}D" >&2
+                    if [[ -n ${list[$((y+(x+1)*rows))]} ]]; then
+                        x=$((x+1))
+                        draw_line $y
+                        echo -ne $'\e'"[${COLUMNS}D" >&2
+                    fi
                 fi
                 ;;
             h)
                 if [[ $x -gt 0 ]]; then
-                    x=$((x-1))
-                    draw_line $y
-                    echo -ne $'\e'"[${COLUMNS}D" >&2
+                    if [[ -n ${list[$((y+(x-1)*rows))]} ]]; then
+                        x=$((x-1))
+                        draw_line $y
+                        echo -ne $'\e'"[${COLUMNS}D" >&2
+                    fi
                 fi
                 ;;
             j)
                 if [[ $y -lt $((rows-1)) ]]; then
-                    y=$((y+1))
-                    draw_line $((y-1))
-                    draw_line $y
-                    echo -ne $'\e'"[${COLUMNS}D" >&2
+                    if [[ -n ${list[$((y+1+x*rows))]} ]]; then
+                        y=$((y+1))
+                        draw_line $((y-1))
+                        draw_line $y
+                        echo -ne $'\e'"[${COLUMNS}D" >&2
+                    fi
                 elif [[ $cols == 1 && $rows -gt 1 ]]; then
                     if [[ $irow -lt $((list_size-rows)) ]]; then
                         irow=$((irow+1))
@@ -339,11 +346,13 @@ menu2d() {
                 ;;
             k)
                 if [[ $y -gt 0 ]]; then
-                    y=$((y-1))
-                    draw_line $((y+1))
-                    echo -ne $'\e['"${COLUMNS}D"$'\e[A' >&2
-                    draw_line $y
-                    echo -ne $'\e'"[${COLUMNS}D" >&2
+                    if [[ -n ${list[$((y-1+x*rows))]} ]]; then
+                        y=$((y-1))
+                        draw_line $((y+1))
+                        echo -ne $'\e['"${COLUMNS}D"$'\e[A' >&2
+                        draw_line $y
+                        echo -ne $'\e'"[${COLUMNS}D" >&2
+                    fi
                 elif [[ $cols == 1 && $rows -gt 1 ]]; then
                     if [[ $irow -gt 0 ]]; then
                         irow=$((irow-1))
