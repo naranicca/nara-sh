@@ -201,20 +201,30 @@ fuzzy_word() {
     fi
 }
 
+put_filecolor() {
+    if [[ -h "$1" ]]; then
+        echo "$NSH_COLOR_LNK"
+    elif [[ -d "$1" ]]; then
+        echo "$NSH_COLOR_DIR"
+    elif [[ -x "$1" ]]; then
+        echo "$NSH_COLOR_EXE"
+    fi
+}
+
 ls() {
     local line dirs files
     if [[ $# -eq 0 && -t 0 && -t 1 ]]; then
         while true; do
             dirs=() files=()
-            [[ "$(pwd)" != / ]] && dirs+=("$NSH_COLOR_DIR../")
+            [[ "$(pwd)" != / ]] && dirs+=("../")
             while IFS= read line; do
                 if [[ -d "$line" ]]; then
-                    dirs+=("$NSH_COLOR_DIR$line/")
+                    dirs+=("$line/")
                 else
                     files+=("$line")
                 fi
-            done < <(command ls)
-            local ret="$(menu2d "${dirs[@]}" "${files[@]}")"
+            done < <(LC_COLLATE=en_US.utf8 command ls)
+            local ret="$(menu2d "${dirs[@]}" "${files[@]}" --color-func put_filecolor)"
             [[ -z "$ret" ]] && break
             ret="$(strip_escape "$ret")"
             [[ ! -d "$ret" ]] && break
@@ -229,13 +239,19 @@ ls() {
 menu2d() {
     local list disp list_size
     local item trail
-    local len w=0 acclen=0
-    local cols rows c r c2 r2 i j
+    local len w=0
+    local cols rows c r i j
     local x=0 y=0 icol irow
     local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
+    local color_func
 
     while [[ $# -gt 0 ]]; do
-        list+=("$1")
+        if [[ $1 == --color-func ]]; then
+            color_func="$2"
+            shift
+        else
+            list+=("$1")
+        fi
         shift
     done
     list_size=${#list[@]}
@@ -245,45 +261,35 @@ menu2d() {
 
     disp=()
     for ((i=0; i<list_size; i++)); do
-        disp[$i]="$(wc "$wcparam" <<< "$(strip_escape "${list[$i]}")")"
+        disp[$i]="$(wc "$wcparam" <<< "${list[$i]}")"
+        [[ $wcparam == -c ]] && disp[$i]=$((${disp[$i]-1}))
         len="$((${disp[$i]}+2))"
-        acclen=$((acclen+len))
         [[ $len -gt $w ]] && w=$len
     done
     get_terminal_size
-    if [[ $acclen -le $COLUMNS ]]; then
-        cols=$list_size
-        rows=1
-    else
-        cols=$((COLUMNS/w)) && [[ $cols -lt 1 ]] && cols=1
-        rows=$(((list_size+cols-1)/cols))
-        [[ $(((cols-1)*rows)) -ge $list_size ]] && cols=$((cols-1))
-    fi
+    cols=$((COLUMNS/w)) && [[ $cols -lt 1 ]] && cols=1
+    rows=$(((list_size+cols-1)/cols))
+    [[ $(((cols-1)*rows)) -ge $list_size ]] && cols=$((cols-1))
     [[ $rows -ge $((LINES-1)) ]] && rows=$((LINES-1))
     w=$((COLUMNS/cols))
     for ((i=0; i<list_size; i++)); do
         trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
-        disp[$i]="${list[$i]}$trail"
+        if [[ -z $color_func ]]; then
+            disp[$i]="${list[$i]}$trail"
+        else
+            disp[$i]="$($color_func "${list[$i]}")${list[$i]}$trail"
+        fi
     done
 
     draw_line() {
         local i j
-        if [[ $rows -gt 1 ]]; then
-            for ((i=0; i<cols; i++)); do
-                local idx=$((($1+irow)+(i+icol)*rows))
-                [[ $x == $i && $y == $1 ]] && echo -ne '\e[7m' >&2
-                echo -ne "${disp[$idx]}\e[0m" >&2
-            done
-        else
-            for ((i=0; i<cols; i++)); do
-                [[ $x == $i && $y == $1 ]] && echo -ne '\e[7m' >&2
-                echo -ne "${list[$i]}  \e[0m" >&2
-            done
-        fi
-        get_cursor_pos
-        if [[ $__COL__ -lt $COLUMNS ]]; then
-            printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
-        fi
+        for ((i=0; i<cols; i++)); do
+            local idx=$((($1+irow)+(i+icol)*rows))
+            [[ $x == $i && $y == $1 ]] && echo -ne '\e[7m' >&2
+            echo -ne "${disp[$idx]}\e[0m" >&2
+        done
+        echo -ne '\b\b' >&2 && get_cursor_pos
+        [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
     }
 
     for ((j=0; j<rows; j++)); do
