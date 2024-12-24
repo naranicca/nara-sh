@@ -202,7 +202,7 @@ fuzzy_word() {
 }
 
 put_filecolor() {
-    if [[ -h "$1" ]]; then
+    if [[ -h "${1%/}" ]]; then
         echo "$NSH_COLOR_LNK"
     elif [[ -d "$1" ]]; then
         echo "$NSH_COLOR_DIR"
@@ -229,7 +229,7 @@ ls() {
             ret="$(strip_escape "$ret")"
             [[ ! -d "$ret" ]] && break
             cd "$ret"
-            print_prompt; echo ls
+            echo -ne '\e[A'; print_prompt; echo -e 'ls\e[J'
         done
     else
         command ls "$@"
@@ -371,7 +371,6 @@ menu2d() {
                 ;;
             $'\n')
                 idx=$(((y+irow)+(x+icol)*rows))
-                enable_echo >&2
                 echo "${list[$idx]}"
                 break
                 ;;
@@ -382,9 +381,8 @@ menu2d() {
         esac
     done
 
-    for ((j=$y; j<rows; j++)); do
-        draw_line $j
-    done
+    [[ $y -gt 0 ]] && echo -ne "\e[${y}A" >&2
+
     show_cursor >&2
     enable_echo >&2
 }
@@ -975,7 +973,7 @@ nsh() {
     local history=() history_sizse=0
     while true; do
         local command=
-        read_command --prefix "$(print_prompt)" command
+        read_command --prefix "$(print_prompt)"$'\e[J' command
 
         if [[ -n $command ]]; then
             eval "$command"
