@@ -322,32 +322,27 @@ menu2d() {
 
     move_cursor() {
         local xpre=$x ypre=$y icolpre=$icol irowpre=$irow
+        x=$((x+$1))
+        y=$((y+$2))
         if [[ $1 -lt 0 ]]; then
-            icol=$((icol+$1)) && [[ $icol -lt 0 ]] && icol=0
-            x=0
-        elif [[ $1 -ge $cols ]]; then
-            icol=$((icol+cols-$1+1)) && [[ $icol -ge $((max_cols-cols)) ]] && icol=$((max_cols-cols))
+            [[ $x -lt 0 ]] && icol=$((icol+x)) && x=0 && [[ $icol -lt 0 ]] && icol=0
         else
-            x=$1
+            [[ $x -ge $cols ]] && icol=$((icol+cols-x+1)) && x=$((cols-1)) && [[ $icol -gt $((max_cols-cols)) ]] && icol=$((max_cols-cols))
         fi
-
-        if [[ $2 -lt 0 ]]; then
-            if [[ $((x+icol)) -gt 0 ]]; then
-                [[ $x -eq 0 ]] && irow=$((irow-1)) || x=$((x-1))
-                y=$((rows-1))
+        if [[ $y -lt 0 ]]; then
+            if [[ $((icol+x)) -gt 0 ]]; then
+                x=$((x-1)) && y=$((rows-1))
+                [[ $x -lt 0 ]] && x=0 && icol=$((icol-1)) && [[ $icol -lt 0 ]] && icol=0
             else
-                irow=$((irow+$2)) && [[ $irow -lt 0 ]] && irow=0
-                y=0
+                irow=$((irow+y)) && y=0 && [[ $irow -lt 0 ]] && irow=0
             fi
-        elif [[ $2 -ge $rows ]]; then
-            if [[ $((y+1)) -ge $max_rows ]]; then
-                [[ $x -lt $cols ]] && x=$((x+1)) || icol=$((icol+1))
-                y=0
+        elif [[ $y -ge $rows ]]; then
+            if [[ $((icol+x+1)) -lt $max_cols ]]; then
+                x=$((x+1)) && y=0
+                [[ $x -ge $cols ]] && x=$((cols-1)) && icol=$((icol+1)) && [[ $icol -gt $((max_cols-cols)) ]] && icol=$((max_cols-cols))
             else
-                irow=$((irow+rows-$2+1)) && [[ $irow -ge $((max_rows-rows)) ]] && irow=$((max_rows-rows))
+                irow=$((irow+rows-y+1)) && y=$((rows-1)) && [[ $irow -gt $((max_rows-rows)) ]] && irow=$((max_rows-rows))
             fi
-        else
-            y=$2
         fi
 
         local newidx=$((irow+y+(icol+x)*rows))
@@ -378,16 +373,29 @@ menu2d() {
         get_key KEY
         case $KEY in
             l)
-                move_cursor $((x+1)) $y
+                move_cursor 1 0
                 ;;
             h)
-                move_cursor $((x-1)) $y
+                move_cursor -1 0
                 ;;
             j)
-                move_cursor $x $((y+1))
+                move_cursor 0 1
                 ;;
             k)
-                move_cursor $x $((y-1))
+                move_cursor 0 -1
+                ;;
+            0)
+                move_cursor -$max_cols 0
+                ;;
+            g)
+                x=0 y=0 icol=0 irow=0
+                for ((i=0; i<rows; i++)); do draw_line $i; done
+                echo -ne "\e[${COLUMNS}D" >&2
+                [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
+                ;;
+            G)
+                for ((i=0; i<max_cols; i++)); do move_cursor 1 0; done
+                for ((i=0; i<max_rows; i++)); do move_cursor 0 1; done
                 ;;
             $'\n')
                 idx=$(((y+irow)+(x+icol)*rows))
