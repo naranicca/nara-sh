@@ -236,14 +236,15 @@ ls() {
     fi
 }
 
-menu2d() {
+menu() {
     local list disp list_size
     local item trail
     local len w=0
     local cols rows max_cols max_rows c r i j
     local x=0 y=0 icol=0 irow=0
     local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
-    local color_func
+    local color_func initial=0
+    local start_col
 
     max_rows=$((LINES-1))
     while [[ $# -gt 0 ]]; do
@@ -253,16 +254,29 @@ menu2d() {
         elif [[ $1 == -r || $1 == --max-rows ]]; then
             max_rows=$2
             shift
+        elif [[ $1 == -c || $1 == --max-cols ]]; then
+            max_cols=$2
+            shift
+        elif [[ $1 == --initial ]]; then
+            initial=$2
+            shift
         else
             list+=("$1")
         fi
         shift
     done
+    if [[ $(pipe_context) == \>* ]]; then
+        while IFS= read line; do
+            [[ -n $line ]] && list+=("$line")
+        done
+    fi
     list_size=${#list[@]}
 
     hide_cursor >&2
-    disable_echo >&2
-    get_terminal_size
+    disable_echo >&2 </dev/tty
+
+    get_terminal_size </dev/tty
+    get_cursor_pos </dev/tty && start_col=$__COL__ && [[ $__COL__ -gt 1 ]] && printf "%$((COLUMNS-__COL__+3))s" ' '$'\r' >&2
 
     disp=()
     if [[ $list_size -lt 100 ]]; then
@@ -272,7 +286,9 @@ menu2d() {
             len="$((${disp[$i]}+2))"
             [[ $len -gt $w ]] && w=$len
         done
-        cols=$((COLUMNS/w)) && [[ $cols -lt 1 ]] && cols=1
+        cols=$((COLUMNS/w))
+        [[ -n $max_cols && $cols -gt $max_cols ]] && cols=$max_cols
+        [[ $cols -lt 1 ]] && cols=1
     else
         cols=1
     fi
@@ -297,9 +313,15 @@ menu2d() {
             fi
         done
     else
-        for ((i=0; i<list_size; i++)); do
-            disp[$i]="$($color_func "${list[$i]}")${list[$i]:0:$((COLUMNS-1))}"
-        done
+        if [[ -n $color_func ]]; then
+            for ((i=0; i<list_size; i++)); do
+                disp[$i]="$($color_func "${list[$i]}")${list[$i]:0:$((COLUMNS-1))}"
+            done
+        else
+            for ((i=0; i<list_size; i++)); do
+                disp[$i]="${list[$i]:0:$((COLUMNS-1))}"
+            done
+        fi
     fi
 
     draw_line() {
@@ -310,7 +332,7 @@ menu2d() {
             echo -ne "$c${disp[$idx]}" >&2
         done
         [[ $cols -gt 1 ]] && echo -ne '\b\b' >&2
-        get_cursor_pos
+        get_cursor_pos </dev/tty
         [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
     }
 
@@ -369,19 +391,23 @@ menu2d() {
         fi
     }
 
+    if [[ $initial -gt 0 ]]; then
+        for ((i=0; i<initial; i++)); do move_cursor 0 1; done
+    fi
+
     while true; do
-        get_key KEY
+        get_key KEY </dev/tty
         case $KEY in
-            l)
+            l|$'\e[C')
                 move_cursor 1 0
                 ;;
-            h)
+            h|$'\e[D')
                 move_cursor -1 0
                 ;;
-            j)
+            j|$'\e[B')
                 move_cursor 0 1
                 ;;
-            k)
+            k|$'\e[A')
                 move_cursor 0 -1
                 ;;
             0)
@@ -399,6 +425,7 @@ menu2d() {
                 ;;
             $'\n')
                 idx=$(((y+irow)+(x+icol)*rows))
+                echo -ne '\e[0m' >&2
                 echo "${list[$idx]}"
                 break
                 ;;
@@ -409,313 +436,9 @@ menu2d() {
         esac
     done
 
+    [[ $start_col -gt 1 ]] && echo -ne "\e[A\e[$((start_col-1))C\e[J" >&2
     show_cursor >&2
-    enable_echo >&2
-}
-
-menu() {
-    disable_line_wrapping >&2
-    hide_cursor >&2
-
-    get_terminal_size </dev/tty
-    local max_height=$((LINES-1))
-    local min_height=${__NSH_BOTTOM_MARGIN__:-20%}
-    local toprow=
-
-    local cursor0="$__NSH_MENU_DEFAULT_CURSOR__"
-    local items=()
-    local cur=-1 cur_bak=0
-    local popup=0
-    local hscroll=-1
-    local return_idx=0
-    local sel_color="$__NSH_MENU_DEFAULT_SEL_COLOR__"
-    local readparam=
-    local header=
-    local footer=
-    local preview=
-    local header_wrap=off
-    local return_key=()
-    local return_fn=()
-    local search=off
-    local items_bak=()
-    local accent_header=
-    local accent_color0=
-    local accent_color1=
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -i|--initial)
-                shift
-                cur=$1
-                ;;
-            -p|--popup)
-                popup=1
-                ;;
-            --return-idx)
-                return_idx=1
-                ;;
-            --sel-color)
-                shift
-                sel_color="$1"
-                ;;
-            --cursor)
-                shift
-                cursor0="$1"
-                ;;
-            --header)
-                shift
-                header="$1"
-                ;;
-            --footer)
-                shift
-                footer="$1"
-                ;;
-            -r)
-                readparam='-r'
-                ;;
-            --preview)
-                shift
-                preview="$1"
-                ;;
-            -h|--height)
-                shift
-                max_height=$1 && [[ $max_height -gt $LINES ]] && max_height=$LINES
-                ;;
-            --hscroll)
-                hscroll=0
-                ;;
-            --searchable)
-                search=on
-                ;;
-            --header-wrap)
-                header_wrap=on
-                ;;
-            --key)
-                shift && return_key+=("$1")
-                shift && return_fn+=("$1")
-                ;;
-            --accent)
-                shift; accent_header="$1"
-                shift; accent_color0="$1"
-                shift; accent_color1="$1"
-                ;;
-            *)
-                items+=("$1")
-                ;;
-        esac
-        shift
-    done <&1
-    [[ -z $footer && $search == on ]] && footer=+
-    if [[ $(pipe_context) == \>* ]]; then
-        local i=0
-        local ahlen="${#accent_header}"
-        local t=$(get_timestamp)
-        while IFS= read $readparam line; do
-            if [[ $ahlen -gt 0 ]]; then
-                if [[ $line == "$accent_header"* ]]; then
-                    line=$'\e'"[${accent_color0}m${line:$ahlen}"
-                    [[ $cur -lt 0 ]] && cur=$i
-                else
-                    line=$'\e'"[${accent_color1}m$line"
-                fi
-            fi
-            [[ -n "$line" ]] && items+=("$line")
-            ((i++))
-            [[ $i -eq 100 && $(($(get_timestamp)-t)) -gt 300 ]] && echo -en "\rLoading..." >&2
-        done
-    fi
-    [[ $cur -lt 0 ]] && cur=0
-
-    local cursor1="$(strip_escape "$cursor0" | sed 's/./ /g')"
-    [[ $header == - ]] && header="$cursor1 ${items[0]}" && items=("${items[@]:1}")
-
-    local ret=
-    local beg=0
-    local cnt=${#items[@]}
-    local lines=0
-    [[ $cnt == 0 ]] && return 0
-    [[ $cur -ge $cnt ]] && cur=$((cnt-1))
-
-    display_menu() {
-        [[ -n $toprow ]] && move_cursor $toprow >&2
-        lines=${#items[@]}
-        [[ $search == /* ]] && lines=$max_height
-        [[ $1 == clear ]] && cur=-1 && header="${header//?/ }" && items=()
-
-        local height=$((LINES-$(get_cursor_row < /dev/tty)+1))
-        [[ $min_height == *% ]] && min_height=$((LINES*${min_height%?}/100))
-        [[ $height -le $min_height ]] && height=$((min_height))
-        [[ $height -gt $max_height ]] && height=$((max_height))
-        [[ $height -gt 1 ]] && ((height--))
-        [[ -z $footer ]] && ((height++))
-
-        if [[ -n "$header" ]]; then
-            [[ $header_wrap == on ]] && enable_line_wrapping >&2
-            printf "\r\e[0m\e[K$header\n" >&2 && ((height--))
-            disable_line_wrapping >&2
-        fi
-        [[ $lines -gt $height ]] && lines=$height
-        [[ $cur -lt 0 && $1 != show ]] && cur=0
-        [[ $cur -ge ${#items[@]} ]] && cur=$((${#items[@]}-1))
-        [[ $cur -ge 0 && $cur -lt $beg ]] && beg=$cur
-        [[ $cur -ge $((beg+lines)) ]] && beg=$((cur-lines+1))
-        #[[ $1 == show ]] && beg=0 && lines=${#items[@]}
-        local i= && for ((i=$beg; i<$((beg+lines)); i++)); do
-            local m="$cursor1" && [[ $i == $cur ]] && m="$cursor0"
-            local c=0
-            local line="${items[$i]}" && [[ $hscroll -gt 0 ]] && line="${line:$hscroll}"
-            if [[ $i == $cur ]]; then
-                c="$sel_color"
-                [[ -n $sel_color && $sel_color != 7 ]] && line="$(strip_escape "$line")"
-            fi
-            local cr=$'\n' && [[ -z $footer && $i == $((beg+lines-1)) ]] && cr=
-            printf "\r%s %b%s\e[0m \e[K$cr" "$m" "\e[0;${c}m" "$line" >&2
-        done
-        [[ $1 == show && -z $footer ]] && echo >&2
-        [[ $1 == show ]] && return
-        if [[ -n $footer ]]; then
-            [[ -z $footer || $footer == +* ]] && printf '\r\e[0;7m(%*s/%s)\e[0m\e[K' ${#cnt} $((cur+1)) $cnt >&2
-            [[ -n $footer && $search != /* ]] && printf "\e[0m\e[K${footer/#+/}\e[0m" >&2
-        fi
-        [[ $search == /* ]] && printf "\e[37;41m\e[K$search\e[0m" >&2
-        [[ $1 == clear ]] && printf '\r\e[K' >&2 && toprow=
-        if [[ -z $toprow ]]; then
-            get_cursor_pos < /dev/tty
-            [[ -n $header ]] && ((lines++))
-            toprow=$((__ROW__-lines))
-            [[ -z $footer ]] && ((toprow++))
-            move_cursor $toprow >&2
-        fi
-    }
-
-    local keys="${return_key[@]}"
-    while true; do
-        display_menu
-
-        get_key KEY < /dev/tty
-        if [[ $KEY != $'\e' && "$keys" == *$KEY* ]]; then # cannot override ESC
-            ret="$cur" && [[ $return_idx -eq 0 ]] && ret="$(strip_escape "${items[$ret]}")"
-            local i= && for ((i=0; i<${#return_key[@]}; i++)); do
-                if [[ "${return_key[$i]}" == *"$KEY"* ]]; then
-                    if [[ $(type -t "${return_fn[$i]}") == function ]]; then
-                        "${return_fn[$i]}" "$ret"
-                    else
-                        eval "TEMPFUNC() { ${return_fn[$i]}; }"
-                        TEMPFUNC "$ret" "$cur"
-                    fi
-                    break
-                fi
-            done
-            ret=
-            break
-        fi
-        case $KEY in
-            $'\e'|q)
-                if [[ ${#items_bak[@]} -gt 0 ]]; then
-                    items=("${items_bak[@]}")
-                    items_bak=()
-                    [[ $cur -lt 0 ]] && cur=0
-                    cnt=${#items[@]}
-                    cur=$cur_bak
-                    search=on
-                else
-                    break
-                fi
-                ;;
-            j|$'\e[B')
-                [[ $cur -lt $((cnt-1)) ]] && cur=$((cur+1))
-                ;;
-            k|$'\e[A')
-                [[ $cur -gt 0 ]] && cur=$((cur-1))
-                ;;
-            h)
-                if [[ $hscroll -ge 0 ]]; then ((hscroll--)); [[ $hscroll -lt 0 ]] && hscroll=0; fi
-                ;;
-            0)
-                [[ $hscroll -ge 0 ]] && hscroll=0
-                ;;
-            g)
-                cur=0
-                ;;
-            G)
-                cur=$((${#items[@]}-1))
-                ;;
-            $'\04')
-                cur=$((cur+(lines-1)/2))
-                ;;
-            $'\25')
-                cur=$((cur-(lines-1)/2))
-                ;;
-            $'\t')
-                if [ -n "$preview" ]; then
-                    "$preview" "$(strip_escape "${items[$cur]}")" >&2 < /dev/tty
-                    hide_cursor >&2
-                fi
-                ;;
-            $'\n'|' '|l|$'\e[C')
-                if [[ $KEY == l && $hscroll -ge 0 ]]; then
-                    ((hscroll++))
-                else
-                    ret=$cur
-                    [[ $return_idx -eq 0 ]] && ret="${items[$ret]}"
-                    break
-                fi
-                ;;
-            '/')
-                if [[ $search == on || $search == /* ]]; then
-                    cur_bak=$cur
-                    [[ $search != /* ]] && search=/
-                    [[ $hscroll -ge 0 ]] && hscroll=0
-                    items_bak=("${items[@]}")
-                    show_cursor >&2
-                    display_menu
-                    NEXT_KEY=
-                    while true; do
-                        KEY="$NEXT_KEY" && NEXT_KEY=
-                        [[ -z "$KEY" ]] && get_key KEY </dev/tty
-                        case $KEY in
-                            $'\e'|$'\t'|$'\n')
-                                [[ ${#items[@]} -gt 0 ]] && cur=0
-                                break
-                                ;;
-                            $'\177'|$'\b')
-                                search="${search%?}"
-                                ;;
-                            $'\e'*)
-                                ;;
-                            *)
-                                search="$search$KEY"
-                                ;;
-                        esac
-                        [[ $search == /?* ]] && IFS=$'\n' read -d "" -ra items < <(printf '%s\n' "${items_bak[@]}" | grep -i "${search#/}")
-                        beg=0 && cur=-1 && cnt=${#items[@]}
-                        get_key -t $__eps_get_key__ NEXT_KEY </dev/tty
-                        [[ -z $NEXT_KEY ]] && display_menu
-                    done
-                    hide_cursor >&2
-                fi
-                ;;
-            z)
-                local newrow=$((toprow*80/100))
-                [[ $newrow -le 2 ]] && newrow=2
-                local i= && for ((i=0; i<$((toprow-newrow)); i++)); do
-                    move_cursor "$LINES;9999" >&2
-                    echo >&2
-                done
-                toprow=$newrow
-                ;;
-        esac
-    done
-    [[ -z $ret ]] && cur=-1
-    [[ $popup -eq 0 ]] && display_menu show || display_menu clear
-
-    unset -f display_menu
-
-    if [[ $opened != yes ]]; then
-        enable_line_wrapping >&2
-        show_cursor >&2
-    fi
-
-    [[ -n "$ret" ]] && strip_escape "$ret"
+    enable_echo >&2 </dev/tty
 }
 
 play2048() {
@@ -925,9 +648,8 @@ read_command() {
                     chunk="${pre:$ichunk}"
                     cand="$(eval command ls -p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null)"
                     if [[ "$cand" == *$'\n'* ]]; then
-                        echo -ne "${prefix//?/\\b}${pre//?/\\b}" >&2
-                        cand="$(echo -e "$last\n$cand" | menu --popup --header-wrap --header "$prefix${pre:0:$iword}\e[32m${pre:$iword}\e[0m" --key '.' 'echo "%&\$#!@"')"
-                        echo -ne "$prefix$pre" >&2
+                        cand="$(echo -e "$last\n$cand" | menu -r 4 --color-func put_filecolor)"
+                        echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
                     fi
                     if [[ $cand == "%&\$#!@" ]]; then
                         [[ $__NSH_SHOW_HIDDEN_FILES__ -ne 0 ]] && __NSH_SHOW_HIDDEN_FILES__=0 || __NSH_SHOW_HIDDEN_FILES__=1
@@ -959,11 +681,11 @@ read_command() {
                 fi
                 ;;
             $'\e[A') # Up
-                echo -ne "${prefix//?/\\b}${pre//?/\\b}" >&2
-                cmd="$(printf '%s\n' "${history[@]}" | menu --popup --header "$prefix" --initial "$HISTSIZE")"
+                echo -ne "${pre//?/\\b}" >&2
+                cmd="$(printf '%s\n' "${history[@]}" | menu -c 1 --initial "$HISTSIZE")"
                 [[ -n $cmd ]] && cmd="$cmd "
                 cur=${#cmd}
-                echo -ne "$prefix$cmd" >&2
+                echo -ne "$cmd" >&2
                 ;;
             $'\e[B') # Down
                 ;;
