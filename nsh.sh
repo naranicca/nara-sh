@@ -240,14 +240,18 @@ menu2d() {
     local list disp list_size
     local item trail
     local len w=0
-    local cols rows c r i j
-    local x=0 y=0 icol irow isize
+    local cols rows max_cols max_rows c r i j
+    local x=0 y=0 icol=0 irow=0
     local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
     local color_func
 
+    max_rows=$((LINES-1))
     while [[ $# -gt 0 ]]; do
         if [[ $1 == --color-func ]]; then
             color_func="$2"
+            shift
+        elif [[ $1 == -r || $1 == --max-rows ]]; then
+            max_rows=$2
             shift
         else
             list+=("$1")
@@ -258,116 +262,132 @@ menu2d() {
 
     hide_cursor >&2
     disable_echo >&2
+    get_terminal_size
 
     disp=()
-    for ((i=0; i<list_size; i++)); do
-        disp[$i]="$(wc "$wcparam" <<< "${list[$i]}")"
-        [[ $wcparam == -c ]] && disp[$i]=$((${disp[$i]-1}))
-        len="$((${disp[$i]}+2))"
-        [[ $len -gt $w ]] && w=$len
-    done
-    get_terminal_size
-    cols=$((COLUMNS/w)) && [[ $cols -lt 1 ]] && cols=1
+    if [[ $list_size -lt 100 ]]; then
+        for ((i=0; i<list_size; i++)); do
+            disp[$i]="$(wc "$wcparam" <<< "${list[$i]}")"
+            [[ $wcparam == -c ]] && disp[$i]=$((${disp[$i]-1}))
+            len="$((${disp[$i]}+2))"
+            [[ $len -gt $w ]] && w=$len
+        done
+        cols=$((COLUMNS/w)) && [[ $cols -lt 1 ]] && cols=1
+    else
+        cols=1
+    fi
     rows=$(((list_size+cols-1)/cols))
+    [[ $rows -ge $max_rows ]] && rows=$max_rows
     [[ $(((cols-1)*rows)) -ge $list_size ]] && cols=$((cols-1))
-    isize=$cols && [[ $cols -eq 1 ]] && isize=$rows
-    [[ $rows -ge $((LINES-1)) ]] && rows=$((LINES-1))
+    if [[ $cols -eq 1 ]]; then
+        max_cols=1
+        max_rows=$list_size
+    else
+        max_rows=$rows
+        max_cols=$(((list_size+rows-1)/rows))
+    fi
     w=$((COLUMNS/cols))
-    for ((i=0; i<list_size; i++)); do
-        trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
-        if [[ -z $color_func ]]; then
-            disp[$i]="${list[$i]}$trail"
-        else
-            disp[$i]="$($color_func "${list[$i]}")${list[$i]}$trail"
-        fi
-    done
+    if [[ $cols -gt 1 ]]; then
+        for ((i=0; i<list_size; i++)); do
+            trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
+            if [[ -z $color_func ]]; then
+                disp[$i]="${list[$i]}$trail"
+            else
+                disp[$i]="$($color_func "${list[$i]}")${list[$i]}$trail"
+            fi
+        done
+    else
+        for ((i=0; i<list_size; i++)); do
+            disp[$i]="$($color_func "${list[$i]}")${list[$i]:0:$((COLUMNS-1))}"
+        done
+    fi
 
     draw_line() {
         local i j
         for ((i=0; i<cols; i++)); do
             local idx=$((($1+irow)+(i+icol)*rows))
-            [[ $x == $i && $y == $1 ]] && echo -ne '\e[7m' >&2
-            echo -ne "${disp[$idx]}\e[0m" >&2
+            local c=$'\e[0m' && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'
+            echo -ne "$c${disp[$idx]}" >&2
         done
-        echo -ne '\b\b' >&2 && get_cursor_pos
+        [[ $cols -gt 1 ]] && echo -ne '\b\b' >&2
+        get_cursor_pos
         [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
     }
 
     for ((j=0; j<rows; j++)); do
         draw_line $j
     done
+    echo -ne "\e[${COLUMNS}D" >&2
+    [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
 
-    echo -ne $'\e'"[${COLUMNS}D" >&2
-    for ((i=1; i<rows; i++)); do echo -ne $'\e[A' >&2 ; done
+    move_cursor() {
+        local xpre=$x ypre=$y icolpre=$icol irowpre=$irow
+        if [[ $1 -lt 0 ]]; then
+            icol=$((icol+$1)) && [[ $icol -lt 0 ]] && icol=0
+            x=0
+        elif [[ $1 -ge $cols ]]; then
+            icol=$((icol+cols-$1+1)) && [[ $icol -ge $((max_cols-cols)) ]] && icol=$((max_cols-cols))
+        else
+            x=$1
+        fi
+
+        if [[ $2 -lt 0 ]]; then
+            if [[ $((x+icol)) -gt 0 ]]; then
+                [[ $x -eq 0 ]] && irow=$((irow-1)) || x=$((x-1))
+                y=$((rows-1))
+            else
+                irow=$((irow+$2)) && [[ $irow -lt 0 ]] && irow=0
+                y=0
+            fi
+        elif [[ $2 -ge $rows ]]; then
+            if [[ $((y+1)) -ge $max_rows ]]; then
+                [[ $x -lt $cols ]] && x=$((x+1)) || icol=$((icol+1))
+                y=0
+            else
+                irow=$((irow+rows-$2+1)) && [[ $irow -ge $((max_rows-rows)) ]] && irow=$((max_rows-rows))
+            fi
+        else
+            y=$2
+        fi
+
+        local newidx=$((irow+y+(icol+x)*rows))
+        if [[ -n ${list[$newidx]} ]]; then
+            if [[ $icolpre -ne $icol || irowpre -ne $irow ]]; then
+                for ((i=0; i<rows; i++)); do
+                    draw_line $i
+                done
+                echo -ne "\e[${COLUMNS}D\e[$((rows-1))A" >&2
+            else
+                if [[ $y -ne $ypre ]]; then
+                    [[ $ypre -gt 0 ]] && echo -ne "\e[${ypre}B" >&2
+                    draw_line $ypre
+                    echo -ne "\e[${COLUMNS}D" >&2
+                    [[ $ypre -gt 0 ]] && echo -ne "\e[${ypre}A" >&2
+                fi
+                [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
+                draw_line $y
+                echo -ne "\e[${COLUMNS}D" >&2
+                [[ $y -gt 0 ]] && echo -ne "\e[${y}A" >&2
+            fi
+        else
+            x=$xpre y=$ypre icol=$icolpre irow=$irowpre
+        fi
+    }
+
     while true; do
         get_key KEY
         case $KEY in
             l)
-                if [[ $x -lt $((cols-1)) ]]; then
-                    if [[ -n ${list[$((y+(x+1)*rows))]} ]]; then
-                        x=$((x+1))
-                        draw_line $y
-                        echo -ne $'\e'"[${COLUMNS}D" >&2
-                    fi
-                fi
+                move_cursor $((x+1)) $y
                 ;;
             h)
-                if [[ $x -gt 0 ]]; then
-                    if [[ -n ${list[$((y+(x-1)*rows))]} ]]; then
-                        x=$((x-1))
-                        draw_line $y
-                        echo -ne $'\e'"[${COLUMNS}D" >&2
-                    fi
-                fi
+                move_cursor $((x-1)) $y
                 ;;
             j)
-                if [[ $y -lt $((rows-1)) ]]; then
-                    if [[ -n ${list[$((y+1+x*rows))]} ]]; then
-                        y=$((y+1))
-                        draw_line $((y-1))
-                        draw_line $y
-                        echo -ne $'\e'"[${COLUMNS}D" >&2
-                    fi
-                elif [[ $cols == 1 && $rows -gt 1 ]]; then
-                    if [[ $irow -lt $((list_size-rows)) ]]; then
-                        irow=$((irow+1))
-                        echo -ne $'\e['"$((rows-1))A" >&2
-                        for ((i=0; i<rows; i++)); do draw_line $i; done
-                        echo -ne $'\e['"${COLUMNS}D" >&2
-                    fi
-                elif [[ $x -lt $((cols-1)) ]]; then
-                    y=0 x=$((x+1))
-                    draw_line $((rows-1))
-                    echo -ne $'\e['"${COLUMNS}D" >&2
-                    [[ $rows -gt 1 ]] && echo -ne $'\e['"$((rows-1))A" >&2
-                    draw_line 0
-                    echo -ne $'\e'"[${COLUMNS}D" >&2
-                fi
+                move_cursor $x $((y+1))
                 ;;
             k)
-                if [[ $y -gt 0 ]]; then
-                    if [[ -n ${list[$((y-1+x*rows))]} ]]; then
-                        y=$((y-1))
-                        draw_line $((y+1))
-                        echo -ne $'\e['"${COLUMNS}D"$'\e[A' >&2
-                        draw_line $y
-                        echo -ne $'\e'"[${COLUMNS}D" >&2
-                    fi
-                elif [[ $cols == 1 && $rows -gt 1 ]]; then
-                    if [[ $irow -gt 0 ]]; then
-                        irow=$((irow-1))
-                        for ((i=0; i<rows; i++)); do draw_line $i; done
-                        echo -ne $'\e'"[${COLUMNS}D" >&2
-                        echo -ne $'\e['"$((rows-1))A" >&2
-                    fi
-                elif [[ $x -gt 0 ]]; then
-                    x=$((x-1)) y=$((rows-1))
-                    draw_line 0
-                    echo -ne $'\e'"[${COLUMNS}D" >&2
-                    for ((i=1; i<rows; i++)); do echo -ne $'\e[B' >&2 ; done
-                    draw_line $((rows-1))
-                    echo -ne $'\e'"[${COLUMNS}D" >&2
-                fi
+                move_cursor $x $((y-1))
                 ;;
             $'\n')
                 idx=$(((y+irow)+(x+icol)*rows))
@@ -380,8 +400,6 @@ menu2d() {
                 ;;
         esac
     done
-
-    [[ $y -gt 0 ]] && echo -ne "\e[${y}A" >&2
 
     show_cursor >&2
     enable_echo >&2
@@ -935,6 +953,7 @@ read_command() {
             $'\e[A') # Up
                 echo -ne "${prefix//?/\\b}${pre//?/\\b}" >&2
                 cmd="$(printf '%s\n' "${history[@]}" | menu --popup --header "$prefix" --initial "$HISTSIZE")"
+                [[ -n $cmd ]] && cmd="$cmd "
                 cur=${#cmd}
                 echo -ne "$prefix$cmd" >&2
                 ;;
