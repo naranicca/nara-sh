@@ -3,12 +3,10 @@
 ##############################################################################
 # configs
 __NSH_VERSION__='0.2.0'
-__NSH_BOTTOM_MARGIN__=20%
-__NSH_MENU_DEFAULT_CURSOR__=$'\e[31;40m>'
-__NSH_MENU_DEFAULT_SEL_COLOR__='32;40'
 __NSH_SHOW_HIDDEN_FILES__=0
 
 HISTSIZE=1000
+NSH_MENU_HEIGHT=20%
 
 NSH_COLOR_TXT=$'\e[37m'
 NSH_COLOR_CMD=$'\e[32m'
@@ -211,29 +209,6 @@ put_filecolor() {
     fi
 }
 
-explore() {
-    local line dirs files
-    while true; do
-        echo -e "\e[30;100m$(dirs)\e[K\e[0m"
-        dirs=() files=()
-        [[ "$(pwd)" != / ]] && dirs+=("../")
-        while IFS= read line; do
-            if [[ -d "$line" ]]; then
-                dirs+=("$line/")
-            else
-                files+=("$line")
-            fi
-        done < <(LC_COLLATE=en_US.UTF-8 command ls)
-        local ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor -r 4)"
-        [[ -z "$ret" ]] && break
-        ret="$(strip_escape "$ret")"
-        [[ ! -d "$ret" ]] && break
-        cd "$ret"
-        echo -ne '\e[A\e[0m\e[J'
-    done
-    echo -ne '\e[A\e[J'
-}
-
 menu() {
     local list disp list_size
     local item trail
@@ -242,9 +217,14 @@ menu() {
     local x=0 y=0 icol=0 irow=0
     local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
     local color_func initial=0
-    local start_col
+    local start_col avail_rows
 
-    max_rows=$((LINES-1))
+    get_terminal_size </dev/tty
+    get_cursor_pos </dev/tty && start_col=$__COL__ && [[ $__COL__ -gt 1 ]] && printf "%$((COLUMNS-__COL__+3))s" ' '$'\r' >&2
+
+    max_rows=$NSH_MENU_HEIGHT
+    avail_rows=$((LINES-__ROW__+1))
+
     while [[ $# -gt 0 ]]; do
         if [[ $1 == --color-func ]]; then
             color_func="$2"
@@ -269,12 +249,13 @@ menu() {
         done
     fi
     list_size=${#list[@]}
+    [[ $list_size -eq 0 ]] && return 0
+    [[ $max_rows == *% ]] && max_rows=$((LINES*${max_rows%?}/100))
+    [[ $max_rows -lt $avail_rows ]] && max_rows=$avail_rows
+    [[ $list_size -lt $max_rows ]] && max_cols=1
 
     hide_cursor >&2
     disable_echo >&2 </dev/tty
-
-    get_terminal_size </dev/tty
-    get_cursor_pos </dev/tty && start_col=$__COL__ && [[ $__COL__ -gt 1 ]] && printf "%$((COLUMNS-__COL__+3))s" ' '$'\r' >&2
 
     disp=()
     if [[ $list_size -lt 100 ]]; then
@@ -301,6 +282,7 @@ menu() {
         max_cols=$(((list_size+rows-1)/rows))
     fi
     w=$((COLUMNS/cols))
+    [[ $cols -gt 1 && $rows -lt $avail_rows ]] && rows=$avail_rows
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
             trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
@@ -600,6 +582,7 @@ read_command() {
     local cur=0
     local pre post cand word chunk
     local iword=0 ichunk=0
+    local KEY NEXT_KEY
     shopt -s nocaseglob
     update_dotglob() 
     {
@@ -612,17 +595,22 @@ read_command() {
     update_dotglob
 
     [[ $1 == "--prefix" ]] && prefix="$2" && shift && shift && echo -ne "$prefix" >&2
+    [[ $1 == "--cmd" ]] && cmd="$2" && shift && shift && echo -ne "$cmd" >&2
+
+    echo -ne '\e[J'
     while true; do
         pre="${cmd:0:$cur}"
         post="${cmd:$cur}"
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY
         case $KEY in
             $'\e') # ESC
-                echo -ne "${pre//?/\\b}" >&2
-                echo -ne "${cmd//?/ }" >&2
-                echo -ne "${cmd//?/\\b}" >&2
-                cmd=
-                cur=0
+                if [[ -n $cmd ]]; then
+                    echo -ne "\e[$((${#prefix}+${#cmd}))D\e[J$prefix" >&2
+                    cmd=
+                    cur=0
+                else
+                    NEXT_KEY=$'\t'
+                fi
                 ;;
             $'\04')
                 if [[ -n $cmd ]]; then
@@ -649,42 +637,46 @@ read_command() {
                 # ls abc/def/g
                 #    ^       ^
                 #    iword   ichunk
-                local quote=
-                local last
-                while true; do
-                    chunk="${pre:$ichunk}"
-                    cand="$(eval command ls -p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null)"
-                    if [[ "$cand" == *$'\n'* ]]; then
-                        cand="$(echo -e "$last\n$cand" | menu -r 4 --color-func put_filecolor)"
-                        echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
+                if [[ -z $cmd ]]; then
+                    NEXT_KEY=$'\e[B'
+                else
+                    local quote=
+                    local last
+                    while true; do
+                        chunk="${pre:$ichunk}"
+                        cand="$(eval command ls -p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null)"
+                        if [[ "$cand" == *$'\n'* ]]; then
+                            cand="$(echo -e "$last\n$cand" | menu --color-func put_filecolor)"
+                            echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
+                        fi
+                        if [[ $cand == "%&\$#!@" ]]; then
+                            [[ $__NSH_SHOW_HIDDEN_FILES__ -ne 0 ]] && __NSH_SHOW_HIDDEN_FILES__=0 || __NSH_SHOW_HIDDEN_FILES__=1
+                            update_dotglob
+                        elif [[ -n "$cand" ]]; then
+                            word="${pre:$iword}"
+                            echo -ne "${word//?/\\b}$cand" >&2
+                            pre="${pre:0:$iword}$cand"
+                            cmd="$pre$post"
+                            cur=${#pre}
+                            ichunk=$cur
+                            [[ -f "$word" || "$last" == "$cand" ]] && NEXT_KEY=\  && break
+                            last="$cand"
+                        else
+                            break
+                        fi
+                    done
+                    word="${pre:$iword}"
+                    if [[ -e "$word" ]]; then
+                        eval "[[ -e $word ]] && echo" &>/dev/null || quote=\"
                     fi
-                    if [[ $cand == "%&\$#!@" ]]; then
-                        [[ $__NSH_SHOW_HIDDEN_FILES__ -ne 0 ]] && __NSH_SHOW_HIDDEN_FILES__=0 || __NSH_SHOW_HIDDEN_FILES__=1
-                        update_dotglob
-                    elif [[ -n "$cand" ]]; then
-                        word="${pre:$iword}"
-                        echo -ne "${word//?/\\b}$cand" >&2
-                        pre="${pre:0:$iword}$cand"
+                    if [[ -n "$word" && -n $quote ]]; then
+                        echo -ne "${word//?/\\b}$quote$word$quote$post" >&2
+                        echo -ne "${post//?/\\b}" >&2
+                        pre="${pre:0:$iword}$quote${pre:$iword}$quote"
                         cmd="$pre$post"
                         cur=${#pre}
-                        ichunk=$cur
-                        [[ -f "$word" || "$last" == "$cand" ]] && NEXT_KEY=\  && break
-                        last="$cand"
-                    else
-                        break
+                        NEXT_KEY=\ 
                     fi
-                done
-                word="${pre:$iword}"
-                if [[ -e "$word" ]]; then
-                    eval "[[ -e $word ]] && echo" &>/dev/null || quote=\"
-                fi
-                if [[ -n "$word" && -n $quote ]]; then
-                    echo -ne "${word//?/\\b}$quote$word$quote$post" >&2
-                    echo -ne "${post//?/\\b}" >&2
-                    pre="${pre:0:$iword}$quote${pre:$iword}$quote"
-                    cmd="$pre$post"
-                    cur=${#pre}
-                    NEXT_KEY=\ 
                 fi
                 ;;
             $'\e[A') # Up
@@ -695,14 +687,33 @@ read_command() {
                 echo -ne "$cmd" >&2
                 ;;
             $'\e[B') # Down
+                if [[ -z $cmd ]]; then
+                    cmd=$'\t'
+                    break
+                else
+                    cmd=
+                    cur=0
+                fi
                 ;;
             $'\e[C') # right
-                echo -ne "${cmd:$cur:1}" >&2
-                cur=$((cur+1))
+                if [[ $cur -lt ${#cmd} ]]; then
+                    echo -ne "${cmd:$cur:1}" >&2
+                    cur=$((cur+1))
+                fi
                 ;;
             $'\e[D') # left
-                echo -ne '\b' >&2
-                cur=$((cur-1))
+                if [[ $cur -gt 0 ]]; then
+                    echo -ne '\b' >&2
+                    cur=$((cur-1))
+                fi
+                ;;
+            $'\e[1~'|$'\e[H') # home
+                echo -ne "\e[$((${#prefix}+${#cmd}))D$prefix" >&2
+                cur=0
+                ;;
+            $'\e[4~'|$'\e[F') # end
+                echo -ne "\e[$((${#prefix}+${#cmd}))D$prefix$cmd" >&2
+                cur=${#cmd}
                 ;;
             *)
                 cmd="$pre$KEY$post"
@@ -723,15 +734,43 @@ read_command() {
 # main loop
 ############################################################################
 nsh() {
+    local history=() history_sizse=0
+    local command
+
     show_cursor
     enable_line_wrapping
 
-    local history=() history_sizse=0
     while true; do
-        local command=
-        read_command --prefix "$(print_prompt)"$'\e[J' command
+        read_command --prefix "$(print_prompt)" --cmd "$command" command
 
-        if [[ -n $command ]]; then
+        if [[ "$command" == $'\t' ]]; then
+            # explore
+            local line dirs files ret
+            while true; do
+                echo -e "\r\e[30;100m$(dirs)\e[K\e[0m" >&2
+                dirs=() files=()
+                [[ "$(pwd)" != / ]] && dirs+=("../")
+                while IFS= read line; do
+                    if [[ -d "$line" ]]; then
+                        dirs+=("$line/")
+                    else
+                        files+=("$line")
+                    fi
+                done < <(LC_COLLATE=en_US.UTF-8 command ls)
+                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor)"
+                [[ -z "$ret" ]] && break
+                ret="$(strip_escape "$ret")"
+                if [[ -d "$ret" ]]; then
+                    cd "$ret"
+                else
+                    [[ -x "$ret" ]] && ret="./$ret"
+                    break
+                fi
+                echo -ne '\e[A\e[0m\e[J' >&2
+            done
+            echo -ne '\e[A\e[0m\e[J' >&2
+            [[ -n $ret ]] && command="$ret " || command=
+        elif [[ -n $command ]]; then
             eval "$command"
             # save command to history
             history_size=${#history[@]}
@@ -747,6 +786,7 @@ nsh() {
                     [[ $history_idx -lt 0 ]] && history_idx=0
                 fi
             fi
+            command=
         fi
     done
 }
