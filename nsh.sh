@@ -211,29 +211,27 @@ put_filecolor() {
     fi
 }
 
-ls() {
+explore() {
     local line dirs files
-    if [[ $# -eq 0 && -t 0 && -t 1 ]]; then
-        while true; do
-            dirs=() files=()
-            [[ "$(pwd)" != / ]] && dirs+=("../")
-            while IFS= read line; do
-                if [[ -d "$line" ]]; then
-                    dirs+=("$line/")
-                else
-                    files+=("$line")
-                fi
-            done < <(LC_COLLATE=en_US.utf8 command ls)
-            local ret="$(menu2d "${dirs[@]}" "${files[@]}" --color-func put_filecolor)"
-            [[ -z "$ret" ]] && break
-            ret="$(strip_escape "$ret")"
-            [[ ! -d "$ret" ]] && break
-            cd "$ret"
-            echo -ne '\e[A'; print_prompt; echo -e 'ls\e[J'
-        done
-    else
-        command ls "$@"
-    fi
+    while true; do
+        echo -e "\e[30;100m$(dirs)\e[K\e[0m"
+        dirs=() files=()
+        [[ "$(pwd)" != / ]] && dirs+=("../")
+        while IFS= read line; do
+            if [[ -d "$line" ]]; then
+                dirs+=("$line/")
+            else
+                files+=("$line")
+            fi
+        done < <(LC_COLLATE=en_US.UTF-8 command ls)
+        local ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor -r 4)"
+        [[ -z "$ret" ]] && break
+        ret="$(strip_escape "$ret")"
+        [[ ! -d "$ret" ]] && break
+        cd "$ret"
+        echo -ne '\e[A\e[0m\e[J'
+    done
+    echo -ne '\e[A\e[J'
 }
 
 menu() {
@@ -359,11 +357,16 @@ menu() {
                 irow=$((irow+y)) && y=0 && [[ $irow -lt 0 ]] && irow=0
             fi
         elif [[ $y -ge $rows ]]; then
-            if [[ $((icol+x+1)) -lt $max_cols ]]; then
-                x=$((x+1)) && y=0
-                [[ $x -ge $cols ]] && x=$((cols-1)) && icol=$((icol+1)) && [[ $icol -gt $((max_cols-cols)) ]] && icol=$((max_cols-cols))
+            if [[ $cols -eq 1 ]]; then
+                y=$((irow+y)) && [[ $y -ge $max_rows ]] && y=$((max_rows-1))
+                irow=$((y-rows+1)) y=$((rows-1))
             else
-                irow=$((irow+rows-y+1)) && y=$((rows-1)) && [[ $irow -gt $((max_rows-rows)) ]] && irow=$((max_rows-rows))
+                if [[ $((icol+x+1)) -lt $max_cols ]]; then
+                    x=$((x+1)) && y=0
+                    [[ $x -ge $cols ]] && x=$((cols-1)) && icol=$((icol+1)) && [[ $icol -gt $((max_cols-cols)) ]] && icol=$((max_cols-cols))
+                else
+                    irow=$((irow+rows-y+1)) && y=$((rows-1)) && [[ $irow -gt $((max_rows-rows)) ]] && irow=$((max_rows-rows))
+                fi
             fi
         fi
 
@@ -420,12 +423,15 @@ menu() {
                 [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
                 ;;
             G)
-                for ((i=0; i<max_cols; i++)); do move_cursor 1 0; done
-                for ((i=0; i<max_rows; i++)); do move_cursor 0 1; done
+                if [[ $cols -gt 1 ]]; then
+                    for ((i=0; i<max_cols; i++)); do move_cursor 1 0; done
+                    for ((i=0; i<max_rows; i++)); do move_cursor 0 1; done
+                else
+                    move_cursor 0 $max_rows
+                fi
                 ;;
             $'\n')
                 idx=$(((y+irow)+(x+icol)*rows))
-                echo -ne '\e[0m' >&2
                 echo "${list[$idx]}"
                 break
                 ;;
@@ -436,7 +442,7 @@ menu() {
         esac
     done
 
-    [[ $start_col -gt 1 ]] && echo -ne "\e[A\e[$((start_col-1))C\e[J" >&2
+    [[ $start_col -gt 1 ]] && echo -ne "\e[A\e[$((start_col-1))C\e[J\e[0m" >&2
     show_cursor >&2
     enable_echo >&2 </dev/tty
 }
@@ -595,7 +601,6 @@ read_command() {
     local pre post cand word chunk
     local iword=0 ichunk=0
     shopt -s nocaseglob
-    [[ $1 == "--prefix" ]] && prefix="$2" && shift && shift && echo -ne "$prefix" >&2
     update_dotglob() 
     {
         if [[ $__NSH_SHOW_HIDDEN_FILES__ -ne 0 ]]; then
@@ -605,6 +610,8 @@ read_command() {
         fi
     }
     update_dotglob
+
+    [[ $1 == "--prefix" ]] && prefix="$2" && shift && shift && echo -ne "$prefix" >&2
     while true; do
         pre="${cmd:0:$cur}"
         post="${cmd:$cur}"
