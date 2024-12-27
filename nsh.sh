@@ -384,7 +384,11 @@ menu() {
     }
 
     if [[ $initial -gt 0 ]]; then
-        for ((i=0; i<initial; i++)); do move_cursor 0 1; done
+        if [[ $cols -gt 1 ]]; then
+            for ((i=0; i<initial; i++)); do move_cursor 0 1; done
+        else
+            move_cursor 0 $initial
+        fi
     fi
 
     while true; do
@@ -651,7 +655,7 @@ read_command() {
     update_dotglob
 
     [[ $1 == "--prefix" ]] && prefix="$2" && shift && shift && echo -ne "$prefix" >&2
-    [[ $1 == "--cmd" ]] && cmd="$2" && shift && shift && echo -ne "$cmd" >&2
+    [[ $1 == "--cmd" ]] && cmd="$2" && cur=${#cmd} && shift && shift && echo -ne "$cmd" >&2
 
     echo -ne '\e[J'
     while true; do
@@ -700,9 +704,10 @@ read_command() {
                     local last
                     while true; do
                         chunk="${pre:$ichunk}"
-                        cand="$(eval command ls -p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null)"
+                        local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
+                        cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sort --ignore-case)"
                         if [[ "$cand" == *$'\n'* ]]; then
-                            cand="$(echo -e "$last\n$cand" | menu --color-func put_filecolor)"
+                            cand="$(echo -e "$cand" | menu --color-func put_filecolor)"
                             echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
                         fi
                         if [[ $cand == "%&\$#!@" ]]; then
@@ -736,11 +741,13 @@ read_command() {
                 fi
                 ;;
             $'\e[A') # Up
-                echo -ne "${pre//?/\\b}" >&2
-                cmd="$(printf '%s\n' "${history[@]}" | menu -c 1 --initial "$HISTSIZE")"
-                [[ -n $cmd ]] && cmd="$cmd "
-                cur=${#cmd}
-                echo -ne "$cmd" >&2
+                if [[ ${#history[@]} -gt 0 ]]; then
+                    echo -ne "${pre//?/\\b}" >&2
+                    cmd="$(printf '%s\n' "${history[@]}" | menu -c 1 --initial "$HISTSIZE")"
+                    [[ -n $cmd ]] && cmd="$cmd "
+                    cur=${#cmd}
+                    echo -ne "$cmd" >&2
+                fi
                 ;;
             $'\e[B') # Down
                 if [[ -z $cmd ]]; then
@@ -802,8 +809,11 @@ nsh() {
         if [[ "$command" == $'\t' ]]; then
             # explore
             local line dirs files ret
+            local git_stat git_color
             while true; do
-                echo -e "\r\e[30;100m$(dirs)\e[K\e[0m" >&2
+                IFS=\;$'\n' read -sdR git_stat git_color < <(git_status)
+                [[ -n $git_stat ]] && git_stat=$' \e[30;'"$((git_color+10))m($git_stat)"$'\e[0m'
+                echo -e "\r\e[30;100m$(dirs)$git_stat\e[30;100m\e[K\e[0m" >&2
                 dirs=() files=()
                 [[ "$(pwd)" != / ]] && dirs+=("../")
                 while IFS= read line; do
