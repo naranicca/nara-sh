@@ -18,7 +18,7 @@ NSH_COLOR_EXE=$'\e[32m'
 NSH_COLOR_IMG=$'\e[95m'
 NSH_COLOR_LNK=$'\e[96m'
 
-print_prompt() {
+nsh_print_prompt() {
     local NSH_PROMPT_SEPARATOR='\xee\x82\xb0'
     local git_stat git_color
     IFS=\;$'\n' read -sdR git_stat git_color < <(git_status)
@@ -28,6 +28,10 @@ print_prompt() {
         local c2=$((git_color+10))
         echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR\e[${c2}m$NSH_PROMPT_SEPARATOR\e[30;${c2}m$git_stat\e[0;${git_color}m$NSH_PROMPT_SEPARATOR\e[0m "
     fi
+}
+
+nsh_preview() {
+    vi "$1"
 }
 
 show_logo() {
@@ -224,6 +228,7 @@ menu() {
     local x=0 y=0 icol=0 irow=0
     local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
     local color_func initial=0
+    local return_key=() return_fn=() keys
     local start_col avail_rows
 
     get_terminal_size </dev/tty
@@ -245,6 +250,9 @@ menu() {
         elif [[ $1 == --initial ]]; then
             initial=$2
             shift
+        elif [[ $1 == --key ]]; then
+            shift && return_key+=("$1")
+            shift && return_fn+=("$1") # if fn ends with '...', menu will not end after running the function
         else
             list+=("$1")
         fi
@@ -390,49 +398,73 @@ menu() {
             move_cursor 0 $initial
         fi
     fi
+    keys="${return_key[@]}"
 
     while true; do
         get_key KEY </dev/tty
-        case $KEY in
-            l|$'\e[C')
-                move_cursor 1 0
-                ;;
-            h|$'\e[D')
-                move_cursor -1 0
-                ;;
-            j|$'\e[B')
-                move_cursor 0 1
-                ;;
-            k|$'\e[A')
-                move_cursor 0 -1
-                ;;
-            0)
-                move_cursor -$max_cols 0
-                ;;
-            g)
-                x=0 y=0 icol=0 irow=0
-                for ((i=0; i<rows; i++)); do draw_line $i; done
-                echo -ne "\e[${COLUMNS}D" >&2
-                [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
-                ;;
-            G)
-                if [[ $cols -gt 1 ]]; then
-                    for ((i=0; i<max_cols; i++)); do move_cursor 1 0; done
-                    for ((i=0; i<max_rows; i++)); do move_cursor 0 1; done
-                else
-                    move_cursor 0 $max_rows
+        if [[ $keys == *$KEY* ]]; then
+            idx=$(((y+irow)+(x+icol)*rows))
+            item="${list[$idx]}"
+            show_cursor >&2
+            enable_echo >&2 </dev/tty
+            local quit=yes
+            for ((i=0; i<${#return_key[@]}; i++)); do
+                if [[ "${return_key[$i]}" == *"$KEY"* ]]; then
+                    if [[ $(type -t "${return_fn[$i]}") == function ]]; then
+                        "${return_fn[$i]}" "$item"
+                    else
+                        [[ ${return_fn[$i]} == *\.\.\. ]] && quit=no && return_fn[$i]="${return_fn[$i]%???}"
+                        eval "TEMPFUNC() { ${return_fn[$i]}; }" >&2
+                        TEMPFUNC "$item"
+                    fi
+                    break
                 fi
-                ;;
-            $'\n')
-                idx=$(((y+irow)+(x+icol)*rows))
-                echo "${list[$idx]}"
-                break
-                ;;
-            q|$'\e')
-                x=-1 # to lose focus
-                break
-                ;;
-        esac
+            done
+            hide_cursor >&2
+            disable_echo >&2 </dev/tty
+            [[ $quit == yes ]] && break
+        else
+            case $KEY in
+                l|$'\e[C')
+                    move_cursor 1 0
+                    ;;
+                h|$'\e[D')
+                    move_cursor -1 0
+                    ;;
+                j|$'\e[B')
+                    move_cursor 0 1
+                    ;;
+                k|$'\e[A')
+                    move_cursor 0 -1
+                    ;;
+                0)
+                    move_cursor -$max_cols 0
+                    ;;
+                g)
+                    x=0 y=0 icol=0 irow=0
+                    for ((i=0; i<rows; i++)); do draw_line $i; done
+                    echo -ne "\e[${COLUMNS}D" >&2
+                    [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
+                    ;;
+                G)
+                    if [[ $cols -gt 1 ]]; then
+                        for ((i=0; i<max_cols; i++)); do move_cursor 1 0; done
+                        for ((i=0; i<max_rows; i++)); do move_cursor 0 1; done
+                    else
+                        move_cursor 0 $max_rows
+                    fi
+                    ;;
+                $'\n')
+                    idx=$(((y+irow)+(x+icol)*rows))
+                    echo "${list[$idx]}"
+                    break
+                    ;;
+                q|$'\e')
+                    x=-1 # to lose focus
+                    break
+                    ;;
+            esac
+        fi
     done
 
     [[ $start_col -gt 1 ]] && echo -ne "\e[A\e[$((start_col-1))C\e[J\e[0m" >&2
@@ -707,7 +739,7 @@ read_command() {
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
                         cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sort --ignore-case)"
                         if [[ "$cand" == *$'\n'* ]]; then
-                            cand="$(echo -e "$cand" | menu --color-func put_filecolor)"
+                            cand="$(echo -e "$cand" | menu --color-func put_filecolor --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"')"
                             echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
                         fi
                         if [[ $cand == "%&\$#!@" ]]; then
@@ -743,7 +775,7 @@ read_command() {
             $'\e[A') # Up
                 if [[ ${#history[@]} -gt 0 ]]; then
                     echo -ne "${pre//?/\\b}" >&2
-                    cmd="$(printf '%s\n' "${history[@]}" | menu -c 1 --initial "$HISTSIZE")"
+                    cmd="$(printf '%s\n' "${history[@]}" | menu -c 1 --initial "$HISTSIZE" --key $'\b ' 'echo "$1"')"
                     [[ -n $cmd ]] && cmd="$cmd "
                     cur=${#cmd}
                     echo -ne "$cmd" >&2
@@ -804,7 +836,7 @@ nsh() {
     enable_line_wrapping
 
     while true; do
-        read_command --prefix "$(print_prompt)" --cmd "$command" command
+        read_command --prefix "$(nsh_print_prompt)" --cmd "$command" command
 
         if [[ "$command" == $'\t' ]]; then
             # explore
@@ -813,7 +845,7 @@ nsh() {
             while true; do
                 IFS=\;$'\n' read -sdR git_stat git_color < <(git_status)
                 [[ -n $git_stat ]] && git_stat=$' \e[30;'"$((git_color+10))m($git_stat)"$'\e[0m'
-                echo -e "\r\e[30;100m$(dirs)$git_stat\e[30;100m\e[K\e[0m" >&2
+                echo -e "\r\e[30;100m $(dirs)$git_stat\e[30;100m\e[K\e[0m" >&2
                 dirs=() files=()
                 [[ "$(pwd)" != / ]] && dirs+=("../")
                 while IFS= read line; do
@@ -823,7 +855,7 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(LC_COLLATE=en_US.UTF-8 command ls)
-                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor)"
+                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --key $'\t' 'nsh_preview $1 >&2...')"
                 [[ -z "$ret" ]] && break
                 ret="$(strip_escape "$ret")"
                 if [[ -d "$ret" ]]; then
