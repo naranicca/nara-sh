@@ -20,7 +20,14 @@ NSH_COLOR_LNK=$'\e[96m'
 
 print_prompt() {
     local NSH_PROMPT_SEPARATOR='\xee\x82\xb0'
-    echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
+    local git_stat git_color
+    IFS=\;$'\n' read -sdR git_stat git_color < <(git_status)
+    if [[ -z $git_stat ]]; then
+        echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
+    else
+        local c2=$((git_color+10))
+        echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR\e[${c2}m$NSH_PROMPT_SEPARATOR\e[30;${c2}m$git_stat\e[0;${git_color}m$NSH_PROMPT_SEPARATOR\e[0m "
+    fi
 }
 
 show_logo() {
@@ -427,6 +434,55 @@ menu() {
     [[ $start_col -gt 1 ]] && echo -ne "\e[A\e[$((start_col-1))C\e[J\e[0m" >&2
     show_cursor >&2
     enable_echo >&2 </dev/tty
+}
+
+git_status()  {
+    local line str= color=0
+    local filenames=
+    while read line; do
+        case "$line" in
+            *not\ a\ git*|*Not\ a\ git*|*Untracked*)
+                break
+                ;;
+            *On\ branch*|*HEAD\ detached\ at*)
+                str="${line##* }"
+                color=32
+                ;;
+            *rebase\ in\ progress*)
+                str="rebase-->${line##* }"
+                color=31
+                ;;
+            *modified:*|*deleted:*|*new\ file:*|*renamed:*)
+                color=91
+                if [[ "$line" == *modified:* ]]; then
+                    fname="$(echo $line | sed 's/.*modified:[ ]*//')"
+                    [[ $git_mode -eq 0 && -z "$filter" ]] && fname="${fname%%/*}"
+                    filenames="$filenames;$fname"
+                    [[ "$line" == *both\ modified:* ]] && filenames="$filenames*"
+                fi
+                #break
+                ;;
+            *Your\ branch*ahead*)
+                line="${line% *}"
+                line="${line##* }"
+                str="$str +$line"
+                color=33
+                ;;
+            *Your\ branch\ is\ behind*)
+                line="${line#*by }"
+                line="${line%% *}"
+                str="$str -$line"
+                color=33
+                ;;
+            *all\ conflicts*fixed*git\ rebase\ --continue*)
+                str="run 'git rebase --continue'"
+                ;;
+            @@@ERROR@@@)
+                return
+                ;;
+        esac
+    done < <(LANGUAGE=en_US.UTF-8 command git status 2>&1 || echo @@@ERROR@@@)
+    [[ -n $str ]] && echo "$str;$color"
 }
 
 play2048() {
