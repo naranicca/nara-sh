@@ -225,11 +225,12 @@ menu() {
     local item trail
     local len w=0
     local cols rows max_cols max_rows c r i j
-    local x=0 y=0 icol=0 irow=0
+    local x=0 y=0 icol=0 irow=0 idx
     local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
     local color_func initial=0
     local return_key=() return_fn=() keys
     local start_col avail_rows
+    local has_footer=1
 
     get_terminal_size </dev/tty
     get_cursor_pos </dev/tty && start_col=$__COL__ && [[ $__COL__ -gt 1 ]] && printf "%$((COLUMNS-__COL__+3))s" ' '$'\r' >&2
@@ -266,6 +267,7 @@ menu() {
     list_size=${#list[@]}
     [[ $list_size -eq 0 ]] && return 0
     [[ $max_rows == *% ]] && max_rows=$((LINES*${max_rows%?}/100))
+    [[ $has_footer ]] && max_rows=$((max_rows-1)) && avail_rows=$((avail_rows-1))
     [[ $max_rows -lt $avail_rows ]] && max_rows=$avail_rows
     [[ $list_size -lt $max_rows ]] && max_cols=1
 
@@ -322,7 +324,7 @@ menu() {
     draw_line() {
         local i j
         for ((i=0; i<cols; i++)); do
-            local idx=$((($1+irow)+(i+icol)*rows))
+            idx=$((($1+irow)+(i+icol)*rows))
             local c=$'\e[0m' && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'
             echo -ne "$c${disp[$idx]}" >&2
         done
@@ -330,12 +332,21 @@ menu() {
         get_cursor_pos </dev/tty
         [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
     }
+    draw_footer() {
+        if [[ $has_footer ]]; then
+            idx=$(((y+irow)+(x+icol)*rows))
+            printf "\e[0;30;100m%-${COLUMNS}s\e[K\e[0m" "($((idx+1))/$list_size)" >&2
+            echo -ne "\e[${COLUMNS}D\e[${rows}A" >&2
+        else
+            echo -ne "\e[${COLUMNS}D" >&2
+            [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
+        fi
+    }
 
     for ((j=0; j<rows; j++)); do
         draw_line $j
     done
-    echo -ne "\e[${COLUMNS}D" >&2
-    [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
+    draw_footer
 
     move_cursor() {
         local xpre=$x ypre=$y icolpre=$icol irowpre=$irow
@@ -373,7 +384,7 @@ menu() {
                 for ((i=0; i<rows; i++)); do
                     draw_line $i
                 done
-                echo -ne "\e[${COLUMNS}D\e[$((rows-1))A" >&2
+                draw_footer
             else
                 if [[ $y -ne $ypre ]]; then
                     [[ $ypre -gt 0 ]] && echo -ne "\e[${ypre}B" >&2
@@ -385,6 +396,10 @@ menu() {
                 draw_line $y
                 echo -ne "\e[${COLUMNS}D" >&2
                 [[ $y -gt 0 ]] && echo -ne "\e[${y}A" >&2
+                if [[ $has_footer ]]; then
+                    echo -ne "\e[${rows}B" >&2
+                    draw_footer
+                fi
             fi
         else
             x=$xpre y=$ypre icol=$icolpre irow=$irowpre
@@ -775,7 +790,7 @@ read_command() {
             $'\e[A') # Up
                 if [[ ${#history[@]} -gt 0 ]]; then
                     echo -ne "${pre//?/\\b}" >&2
-                    cmd="$(printf '%s\n' "${history[@]}" | menu -c 1 --initial "$HISTSIZE" --key $'\b ' 'echo "$1"')"
+                    cmd="$(printf '%s\n' "${history[@]}" | menu -c 1 --initial "$HISTSIZE" --key $'\177'$'\b ' 'echo "$1"')"
                     [[ -n $cmd ]] && cmd="$cmd "
                     cur=${#cmd}
                     echo -ne "$cmd" >&2
