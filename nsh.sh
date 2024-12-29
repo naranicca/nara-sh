@@ -335,7 +335,7 @@ menu() {
     draw_footer() {
         if [[ $has_footer ]]; then
             idx=$(((y+irow)+(x+icol)*rows))
-            printf "\e[0;30;100m%-${COLUMNS}s\e[K\e[0m" "($((idx+1))/$list_size)" >&2
+            printf "\e[0;90m%-${COLUMNS}s\e[K\e[0m" "($((idx+1))/$list_size)" >&2
             echo -ne "\e[${COLUMNS}D\e[${rows}A" >&2
         else
             echo -ne "\e[${COLUMNS}D" >&2
@@ -699,6 +699,10 @@ read_command() {
             shopt -u dotglob
         fi
     }
+    toggle_dotglob() {
+        [[ $__NSH_SHOW_HIDDEN_FILES__ -ne 0 ]] && __NSH_SHOW_HIDDEN_FILES__=0 || __NSH_SHOW_HIDDEN_FILES__=1
+        update_dotglob
+    }
     update_dotglob
 
     [[ $1 == "--prefix" ]] && prefix="$2" && shift && shift && echo -ne "$prefix" >&2
@@ -758,8 +762,7 @@ read_command() {
                             echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
                         fi
                         if [[ $cand == "%&\$#!@" ]]; then
-                            [[ $__NSH_SHOW_HIDDEN_FILES__ -ne 0 ]] && __NSH_SHOW_HIDDEN_FILES__=0 || __NSH_SHOW_HIDDEN_FILES__=1
-                            update_dotglob
+                            toggle_dotglob
                         elif [[ -n "$cand" ]]; then
                             word="${pre:$iword}"
                             echo -ne "${word//?/\\b}$cand" >&2
@@ -869,11 +872,13 @@ nsh() {
                     else
                         files+=("$line")
                     fi
-                done < <(LC_COLLATE=en_US.UTF-8 command ls)
-                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --key $'\t' 'nsh_preview $1 >&2...')"
+                done < <(LC_COLLATE=en_US.UTF-8 command ls -d *)
+                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"')"
                 [[ -z "$ret" ]] && break
                 ret="$(strip_escape "$ret")"
-                if [[ -d "$ret" ]]; then
+                if [[ "$ret" == "%\$#@^%\$" ]]; then
+                    toggle_dotglob
+                elif [[ -d "$ret" ]]; then
                     cd "$ret"
                 else
                     [[ -x "$ret" ]] && ret="./$ret"
