@@ -230,7 +230,6 @@ menu() {
     local color_func initial=0
     local return_key=() return_fn=() keys
     local start_col avail_rows
-    local has_footer=1
 
     get_terminal_size </dev/tty
     get_cursor_pos </dev/tty && start_col=$__COL__ && [[ $__COL__ -gt 1 ]] && printf "%$((COLUMNS-__COL__+3))s" ' '$'\r' >&2
@@ -267,7 +266,6 @@ menu() {
     list_size=${#list[@]}
     [[ $list_size -eq 0 ]] && return 0
     [[ $max_rows == *% ]] && max_rows=$((LINES*${max_rows%?}/100))
-    [[ $has_footer ]] && max_rows=$((max_rows-1)) && avail_rows=$((avail_rows-1))
     [[ $max_rows -lt $avail_rows ]] && max_rows=$avail_rows
     [[ $list_size -lt $max_rows ]] && max_cols=1
 
@@ -331,22 +329,22 @@ menu() {
         [[ $cols -gt 1 ]] && echo -ne '\b\b' >&2
         get_cursor_pos </dev/tty
         [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
-    }
-    draw_footer() {
-        if [[ $has_footer ]]; then
-            idx=$(((y+irow)+(x+icol)*rows))
-            printf "\e[0;90m%-${COLUMNS}s\e[K\e[0m" "($((idx+1))/$list_size)" >&2
-            echo -ne "\e[${COLUMNS}D\e[${rows}A" >&2
-        else
+        if [[ $1 -eq $((rows-1)) ]]; then
+            draw_footer
             echo -ne "\e[${COLUMNS}D" >&2
             [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
         fi
+    }
+    draw_footer() {
+        local idx=$(((y+irow)+(x+icol)*rows))
+        local lls=${#list_size}
+        local bs="$(printf "%$((lls*2+2))s" ' ')"
+        printf "${bs//?/\\b}\e[0;30;46m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
     }
 
     for ((j=0; j<rows; j++)); do
         draw_line $j
     done
-    draw_footer
 
     move_cursor() {
         local xpre=$x ypre=$y icolpre=$icol irowpre=$irow
@@ -384,21 +382,21 @@ menu() {
                 for ((i=0; i<rows; i++)); do
                     draw_line $i
                 done
-                draw_footer
             else
                 if [[ $y -ne $ypre ]]; then
                     [[ $ypre -gt 0 ]] && echo -ne "\e[${ypre}B" >&2
                     draw_line $ypre
-                    echo -ne "\e[${COLUMNS}D" >&2
-                    [[ $ypre -gt 0 ]] && echo -ne "\e[${ypre}A" >&2
+                    if [[ $ypre -ne $((rows-1)) ]]; then
+                        echo -ne "\e[${COLUMNS}D" >&2
+                        [[ $ypre -gt 0 ]] && echo -ne "\e[${ypre}A" >&2
+                    fi
                 fi
                 [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
                 draw_line $y
-                echo -ne "\e[${COLUMNS}D" >&2
-                [[ $y -gt 0 ]] && echo -ne "\e[${y}A" >&2
-                if [[ $has_footer ]]; then
-                    echo -ne "\e[${rows}B" >&2
+                if [[ $y -lt $((rows-1)) ]]; then
+                    echo -ne "\e[$((rows-1-y))B" >&2
                     draw_footer
+                    echo -ne "\e[${COLUMNS}D\e[$((rows-1))A" >&2
                 fi
             fi
         else
@@ -458,8 +456,6 @@ menu() {
                 g)
                     x=0 y=0 icol=0 irow=0
                     for ((i=0; i<rows; i++)); do draw_line $i; done
-                    echo -ne "\e[${COLUMNS}D" >&2
-                    [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
                     ;;
                 G)
                     if [[ $cols -gt 1 ]]; then
@@ -863,7 +859,7 @@ nsh() {
             while true; do
                 IFS=\;$'\n' read -sdR git_stat git_color < <(git_status)
                 [[ -n $git_stat ]] && git_stat=$' \e[30;'"$((git_color+10))m($git_stat)"$'\e[0m'
-                echo -e "\r\e[30;100m $(dirs)$git_stat\e[30;100m\e[K\e[0m" >&2
+                echo -e "\r\e[30;48;5;248m$(dirs)$git_stat\e[30;48;5;248m\e[K\e[0m" >&2
                 dirs=() files=()
                 [[ "$(pwd)" != / ]] && dirs+=("../")
                 while IFS= read line; do
@@ -872,7 +868,7 @@ nsh() {
                     else
                         files+=("$line")
                     fi
-                done < <(LC_COLLATE=en_US.UTF-8 command ls -d *)
+                done < <(command ls -d * 2>/dev/null | sort --ignore-case)
                 ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"')"
                 [[ -z "$ret" ]] && break
                 ret="$(strip_escape "$ret")"
