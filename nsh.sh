@@ -339,7 +339,7 @@ menu() {
         local idx=$(((y+irow)+(x+icol)*rows))
         local lls=${#list_size}
         local bs="$(printf "%$((lls*2+2))s" ' ')"
-        printf "${bs//?/\\b}\e[0;30;46m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
+        printf "${bs//?/\\b}\e[0;30;48;5;248m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
     }
 
     for ((j=0; j<rows; j++)); do
@@ -426,8 +426,8 @@ menu() {
                     if [[ $(type -t "${return_fn[$i]}") == function ]]; then
                         "${return_fn[$i]}" "$item"
                     else
-                        [[ ${return_fn[$i]} == *\.\.\. ]] && quit=no && return_fn[$i]="${return_fn[$i]%???}"
-                        eval "TEMPFUNC() { ${return_fn[$i]}; }" >&2
+                        [[ ${return_fn[$i]} == *\.\.\. ]] && quit=no
+                        eval "TEMPFUNC() { ${return_fn[$i]%\.\.\.}; }" >&2
                         TEMPFUNC "$item"
                     fi
                     break
@@ -752,7 +752,7 @@ read_command() {
                     while true; do
                         chunk="${pre:$ichunk}"
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
-                        cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sort --ignore-case)"
+                        cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sort --ignore-case --version-sort)"
                         if [[ "$cand" == *$'\n'* ]]; then
                             cand="$(echo -e "$cand" | menu --color-func put_filecolor --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"')"
                             echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
@@ -868,7 +868,7 @@ nsh() {
                     else
                         files+=("$line")
                     fi
-                done < <(command ls -d * 2>/dev/null | sort --ignore-case)
+                done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
                 ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"')"
                 [[ -z "$ret" ]] && break
                 ret="$(strip_escape "$ret")"
