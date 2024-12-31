@@ -411,11 +411,11 @@ menu() {
             move_cursor 0 $initial
         fi
     fi
-    keys="${return_key[@]}"
+    keys="$(printf ',%s' "${return_key[@]}"),"
 
     while true; do
         get_key KEY </dev/tty
-        if [[ $keys == *$KEY* ]]; then
+        if [[ $keys == *,$KEY,* ]]; then
             idx=$(((y+irow)+(x+icol)*rows))
             item="${list[$idx]}"
             show_cursor >&2
