@@ -326,10 +326,10 @@ menu() {
             local c=$'\e[0m' && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'
             echo -ne "$c${disp[$idx]}" >&2
         done
-        [[ $cols -gt 1 ]] && echo -ne '\b\b' >&2
         get_cursor_pos </dev/tty
         [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
         if [[ $1 -eq $((rows-1)) ]]; then
+            echo -ne "$__NSH_DRAWLINE_END__" >&2
             draw_footer
             echo -ne "\e[${COLUMNS}D" >&2
             [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
@@ -838,6 +838,13 @@ read_command() {
     shopt -u nocaseglob
     printf -v "${1:-cmd}" "%s" "$cmd"
 }
+
+# init
+get_terminal_size
+printf "%${COLUMNS}s" ' '
+get_cursor_pos
+echo -ne "\e[${COLUMNS}D"
+__NSH_DRAWLINE_END__= && [[ $__COL__ -gt $COLUMNS ]] && __NSH_DRAWLINE_END__=$'\b'
 
 ############################################################################
 # main loop
