@@ -221,7 +221,7 @@ put_filecolor() {
 }
 
 menu() {
-    local list disp list_size
+    local list disp colors selected list_size
     local item trail
     local len w=0
     local cols rows max_cols max_rows c r i j
@@ -272,7 +272,7 @@ menu() {
     hide_cursor >&2
     disable_echo >&2 </dev/tty
 
-    disp=()
+    disp=() colors=() selected=()
     if [[ $list_size -lt 100 ]]; then
         for ((i=0; i<list_size; i++)); do
             disp[$i]="$(wc "$wcparam" <<< "${list[$i]}")"
@@ -301,29 +301,25 @@ menu() {
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
             trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
-            if [[ -z $color_func ]]; then
-                disp[$i]="${list[$i]}$trail"
-            else
-                disp[$i]="$($color_func "${list[$i]}")${list[$i]}$trail"
-            fi
+            disp[$i]="${list[$i]}$trail"
         done
     else
-        if [[ -n $color_func ]]; then
-            for ((i=0; i<list_size; i++)); do
-                disp[$i]="$($color_func "${list[$i]}")${list[$i]:0:$((COLUMNS-1))}"
-            done
-        else
-            for ((i=0; i<list_size; i++)); do
-                disp[$i]="${list[$i]:0:$((COLUMNS-1))}"
-            done
-        fi
+        for ((i=0; i<list_size; i++)); do
+            disp[$i]="${list[$i]:0:$w}"
+        done
+    fi
+    if [[ -n $color_func ]]; then
+        for ((i=0; i<list_size; i++)); do
+            colors[$i]="$($color_func "${list[$i]}")"
+        done
     fi
 
     draw_line() {
         local i j
         for ((i=0; i<cols; i++)); do
             idx=$((($1+irow)+(i+icol)*rows))
-            local c=$'\e[0m' && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'
+            local c=$'\e[0m'"${colors[$idx]}" && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'"${colors[$idx]}"
+            [[ -n ${selected[$idx]} ]] && c="$c"$'\e[33m*'
             echo -ne "$c${disp[$idx]}" >&2
         done
         get_cursor_pos </dev/tty
@@ -338,8 +334,14 @@ menu() {
     draw_footer() {
         local idx=$(((y+irow)+(x+icol)*rows))
         local lls=${#list_size}
-        local bs="$(printf "%$((lls*2+2))s" ' ')"
-        printf "${bs//?/\\b}\e[0;30;48;5;248m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
+        local lbs=$((lls*2+2))
+        local bs="$(printf "%${lbs}s" ' ')" && bs="${bs//?/\\b}"
+        local num_selected=${#selected[@]}
+        if [[ $num_selected -gt 0 ]]; then
+            local bs2="$(printf "%$((${#num_selected}+3))s" ' ')" && bs="$bs${bs2//?/\\b}"
+            bs="$bs"$'\e[0;30;43m'"[*$num_selected]"
+        fi
+        printf "$bs\e[0;30;48;5;248m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
     }
 
     for ((j=0; j<rows; j++)); do
@@ -414,7 +416,7 @@ menu() {
     keys="$(printf ',%s' "${return_key[@]}"),"
 
     while true; do
-        get_key KEY </dev/tty
+        KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
         if [[ $keys == *,$KEY,* ]]; then
             idx=$(((y+irow)+(x+icol)*rows))
             item="${list[$idx]}"
@@ -465,14 +467,39 @@ menu() {
                         move_cursor 0 $max_rows
                     fi
                     ;;
-                $'\n')
+                ' ')
                     idx=$(((y+irow)+(x+icol)*rows))
-                    echo "${list[$idx]}"
+                    if [[ -z "${selected[$idx]}" ]]; then
+                        selected[$idx]="${list[$idx]}"
+                    else
+                        unset selected[$idx]
+                        if [[ ${#selected[@]} -eq 0 ]]; then
+                            # need to erase #selected from the footer
+                            [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))B" >&2
+                            draw_line $((rows-1))
+                        fi
+                    fi
+                    NEXT_KEY=j
+                    ;;
+                $'\n')
+                    if [[ ${#selected[@]} -eq 0 ]]; then
+                        idx=$(((y+irow)+(x+icol)*rows))
+                        echo "${list[$idx]}"
+                    else
+                        for ((i=0; i<list_size; i++)); do
+                            [[ -n ${selected[$i]} ]] && echo -n "${list[$i]} "
+                        done
+                    fi
                     break
                     ;;
                 q|$'\e')
-                    x=-1 # to lose focus
-                    break
+                    if [[ $KEY == $'\e' && ${#selected[@]} -gt 0 ]]; then
+                        selected=()
+                        NEXT_KEY=g
+                    else
+                        x=-1 # to lose focus
+                        break
+                    fi
                     ;;
             esac
         fi
