@@ -765,6 +765,16 @@ read_command() {
                     echo -ne "\b \b$post ${post//?/\\b}\b" >&2
                     cmd="${pre%?}$post"
                     cur=$((cur-1))
+                    # update iword
+                    if [[ $cur -le $iword ]]; then
+                        pre="${cmd:0:$cur}"
+                        if [[ $pre == *\ * ]]; then
+                            pre="${pre% *}"
+                            iword=${#pre}
+                        else
+                            iword=0
+                        fi
+                    fi
                 fi
                 ;;
             $'\t') # tab
