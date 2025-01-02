@@ -319,8 +319,11 @@ menu() {
         for ((i=0; i<cols; i++)); do
             idx=$((($1+irow)+(i+icol)*rows))
             local c=$'\e[0m'"${colors[$idx]}" && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'"${colors[$idx]}"
-            [[ -n ${selected[$idx]} ]] && c="$c"$'\e[33m*'
-            echo -ne "$c${disp[$idx]}" >&2
+            if [[ -n ${selected[$idx]} ]]; then
+                echo -ne "$c*\e[33;48;5;239m${disp[$idx]%?}" >&2
+            else
+                echo -ne "$c${disp[$idx]}" >&2
+            fi
         done
         get_cursor_pos </dev/tty
         [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
@@ -413,11 +416,12 @@ menu() {
             move_cursor 0 $initial
         fi
     fi
-    keys="$(printf ',%s' "${return_key[@]}"),"
+    keys="${return_key[@]}"
 
     while true; do
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
-        if [[ $keys == *,$KEY,* ]]; then
+        local found=0
+        if [[ "$keys" == *$KEY* ]]; then
             idx=$(((y+irow)+(x+icol)*rows))
             item="${list[$idx]}"
             show_cursor >&2
@@ -432,13 +436,15 @@ menu() {
                         eval "TEMPFUNC() { ${return_fn[$i]%\.\.\.}; }" >&2
                         TEMPFUNC "$item"
                     fi
+                    found=1
                     break
                 fi
             done
             hide_cursor >&2
             disable_echo >&2 </dev/tty
-            [[ $quit == yes ]] && break
-        else
+            [[ $found -ne 0 && $quit == yes ]] && break
+        fi
+        if [[ $found -eq 0 ]]; then
             case $KEY in
                 l|$'\e[C')
                     move_cursor 1 0
@@ -479,7 +485,13 @@ menu() {
                             draw_line $((rows-1))
                         fi
                     fi
-                    NEXT_KEY=j
+                    if [[ $idx -lt $list_size ]]; then
+                        NEXT_KEY=j
+                    elif [[ $y -lt $((rows-1)) ]]; then
+                        # when idx == list_size, j key doesn't do anything
+                        [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
+                        draw_line $y
+                    fi
                     ;;
                 $'\n')
                     if [[ ${#selected[@]} -eq 0 ]]; then
