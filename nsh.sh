@@ -21,7 +21,7 @@ NSH_COLOR_LNK=$'\e[96m'
 nsh_print_prompt() {
     local NSH_PROMPT_SEPARATOR='\xee\x82\xb0'
     local git_stat git_color
-    IFS=\;$'\n' read -sdR git_stat git_color < <(git_status)
+    IFS=$'\n' read -sdR git_stat git_color __GIT_CHANGES__ < <(git_status)
     if [[ -z $git_stat ]]; then
         echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
     else
@@ -211,7 +211,9 @@ fuzzy_word() {
 }
 
 put_filecolor() {
-    if [[ -h "${1%/}" ]]; then
+    if [[ "$__GIT_CHANGES__;" == *\;"$1"\;* ]]; then
+        echo $'\e[31m'
+    elif [[ -h "${1%/}" ]]; then
         echo "$NSH_COLOR_LNK"
     elif [[ -d "$1" ]]; then
         echo "$NSH_COLOR_DIR"
@@ -230,6 +232,7 @@ menu() {
     local color_func initial=0
     local return_key=() return_fn=() keys
     local start_col avail_rows
+    local can_select=0
 
     get_terminal_size </dev/tty
     get_cursor_pos </dev/tty && start_col=$__COL__ && [[ $__COL__ -gt 1 ]] && printf "%$((COLUMNS-__COL__+3))s" ' '$'\r' >&2
@@ -250,6 +253,8 @@ menu() {
         elif [[ $1 == --initial ]]; then
             initial=$2
             shift
+        elif [[ $1 == --select ]]; then
+            can_select=1
         elif [[ $1 == --key ]]; then
             shift && return_key+=("$1")
             shift && return_fn+=("$1") # if fn ends with '...', menu will not end after running the function
@@ -474,23 +479,25 @@ menu() {
                     fi
                     ;;
                 ' ')
-                    idx=$(((y+irow)+(x+icol)*rows))
-                    if [[ -z "${selected[$idx]}" ]]; then
-                        selected[$idx]="${list[$idx]}"
-                    else
-                        unset selected[$idx]
-                        if [[ ${#selected[@]} -eq 0 ]]; then
-                            # need to erase #selected from the footer
-                            [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))B" >&2
-                            draw_line $((rows-1))
+                    if [[ $can_select -ne 0 ]]; then
+                        idx=$(((y+irow)+(x+icol)*rows))
+                        if [[ -z "${selected[$idx]}" ]]; then
+                            selected[$idx]="${list[$idx]}"
+                        else
+                            unset selected[$idx]
+                            if [[ ${#selected[@]} -eq 0 ]]; then
+                                # need to erase #selected from the footer
+                                [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))B" >&2
+                                draw_line $((rows-1))
+                            fi
                         fi
-                    fi
-                    if [[ $idx -lt $list_size ]]; then
-                        NEXT_KEY=j
-                    elif [[ $y -lt $((rows-1)) ]]; then
-                        # when idx == list_size, j key doesn't do anything
-                        [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
-                        draw_line $y
+                        if [[ $idx -lt $list_size ]]; then
+                            NEXT_KEY=j
+                        elif [[ $y -lt $((rows-1)) ]]; then
+                            # when idx == list_size, j key doesn't do anything
+                            [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
+                            draw_line $y
+                        fi
                     fi
                     ;;
                 $'\n')
@@ -498,9 +505,11 @@ menu() {
                         idx=$(((y+irow)+(x+icol)*rows))
                         echo "${list[$idx]}"
                     else
+                        item=
                         for ((i=0; i<list_size; i++)); do
-                            [[ -n ${selected[$i]} ]] && echo -n "${list[$i]} "
+                            [[ -n ${selected[$i]} ]] && item="$item ${list[$i]}"
                         done
+                        echo "${item# }"
                     fi
                     break
                     ;;
@@ -542,7 +551,7 @@ git_status()  {
                 color=91
                 if [[ "$line" == *modified:* ]]; then
                     fname="$(echo $line | sed 's/.*modified:[ ]*//')"
-                    [[ $git_mode -eq 0 && -z "$filter" ]] && fname="${fname%%/*}"
+                    #[[ $git_mode -eq 0 && -z "$filter" ]] && fname="${fname%%/*}"
                     filenames="$filenames;$fname"
                     [[ "$line" == *both\ modified:* ]] && filenames="$filenames*"
                 fi
@@ -568,7 +577,11 @@ git_status()  {
                 ;;
         esac
     done < <(LANGUAGE=en_US.UTF-8 command git status 2>&1 || echo @@@ERROR@@@)
-    [[ -n $str ]] && echo "$str;$color"
+    if [[ -n $str ]]; then
+        echo "$str"
+        echo "$color"
+        echo "$filenames;"
+    fi
 }
 
 play2048() {
@@ -797,13 +810,12 @@ read_command() {
                     NEXT_KEY=$'\e[B'
                 else
                     local quote=
-                    local last
                     while true; do
                         chunk="${pre:$ichunk}"
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
                         cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sort --ignore-case --version-sort)"
                         if [[ "$cand" == *$'\n'* ]]; then
-                            cand="$(echo -e "$cand" | menu --color-func put_filecolor --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"')"
+                            cand="$(echo -e "$cand" | menu --color-func put_filecolor --select --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"')"
                             echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
                         fi
                         if [[ $cand == "%&\$#!@" ]]; then
@@ -815,8 +827,7 @@ read_command() {
                             cmd="$pre$post"
                             cur=${#pre}
                             ichunk=$cur
-                            [[ -f "$word" || "$last" == "$cand" ]] && NEXT_KEY=\  && break
-                            last="$cand"
+                            [[ -f "$word" ]] && NEXT_KEY=\  && break
                         else
                             break
                         fi
@@ -913,7 +924,7 @@ nsh() {
             local line dirs files ret
             local git_stat git_color
             while true; do
-                IFS=\;$'\n' read -sdR git_stat git_color < <(git_status)
+                IFS=$'\n' read -sdR git_stat git_color __GIT_CHANGES__ < <(git_status)
                 [[ -n $git_stat ]] && git_stat=$' \e[30;'"$((git_color+10))m($git_stat)"$'\e[0m'
                 echo -e "\r\e[30;48;5;248m$(dirs)$git_stat\e[30;48;5;248m\e[K\e[0m" >&2
                 dirs=() files=()
@@ -925,7 +936,7 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"')"
+                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"')"
                 [[ -z "$ret" ]] && break
                 ret="$(strip_escape "$ret")"
                 if [[ "$ret" == "%\$#@^%\$" ]]; then
