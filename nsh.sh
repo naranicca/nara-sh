@@ -325,9 +325,11 @@ menu() {
             idx=$((($1+irow)+(i+icol)*rows))
             local c=$'\e[0m'"${colors[$idx]}" && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'"${colors[$idx]}"
             if [[ -n ${selected[$idx]} ]]; then
-                echo -ne "$c*\e[33;48;5;239m${disp[$idx]%?}" >&2
+                echo -ne "$c*\e[33;48;5;239m" >&2
+                echo -n "${disp[$idx]%?}" >&2
             else
-                echo -ne "$c${disp[$idx]}" >&2
+                echo -ne "$c" >&2
+                echo -n "${disp[$idx]}" >&2
             fi
         done
         get_cursor_pos </dev/tty
@@ -491,12 +493,14 @@ menu() {
                                 draw_line $((rows-1))
                             fi
                         fi
-                        if [[ $idx -lt $list_size ]]; then
+                        if [[ $idx -lt $((list_size-1)) ]]; then
                             NEXT_KEY=j
-                        elif [[ $y -lt $((rows-1)) ]]; then
-                            # when idx == list_size, j key doesn't do anything
+                        else
+                            # when idx == list_size-1, j key doesn't do anything
                             [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
                             draw_line $y
+                            echo -ne "\e[${COLUMNS}D" >&2
+                            [[ $y -gt 0 ]] && echo -ne "\e[${y}A" >&2
                         fi
                     fi
                     ;;
@@ -754,7 +758,7 @@ read_command() {
     update_dotglob
 
     [[ $1 == "--prefix" ]] && prefix="$2" && shift && shift && echo -ne "$prefix" >&2
-    [[ $1 == "--cmd" ]] && cmd="$2" && cur=${#cmd} && shift && shift && echo -ne "$cmd" >&2
+    [[ $1 == "--cmd" ]] && cmd="$2" && cur=${#cmd} && shift && shift && echo -n "$cmd" >&2
 
     echo -ne '\e[J'
     while true; do
@@ -849,10 +853,10 @@ read_command() {
             $'\e[A') # Up
                 if [[ ${#history[@]} -gt 0 ]]; then
                     echo -ne "${pre//?/\\b}" >&2
-                    cmd="$(printf '%s\n' "${history[@]}" | menu -c 1 --initial "$HISTSIZE" --key $'\177'$'\b ' 'echo "$1"')"
+                    cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key $'\177'$'\b ' 'echo "$1"')"
                     [[ -n $cmd ]] && cmd="$cmd "
                     cur=${#cmd}
-                    echo -ne "$cmd" >&2
+                    echo -n "$cmd" >&2
                 fi
                 ;;
             $'\e[B') # Down
