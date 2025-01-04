@@ -1003,7 +1003,7 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"')"
+                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"' --key '~' 'echo $HOME' --key r 'echo ./')"
                 [[ -z "$ret" ]] && break
                 ret="$(strip_escape "$ret")"
                 if [[ "$ret" == "%\$#@^%\$" ]]; then
