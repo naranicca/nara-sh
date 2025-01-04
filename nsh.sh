@@ -224,6 +224,7 @@ put_filecolor() {
 
 menu() {
     local list disp colors selected list_size
+    local list_org disp_org colors_org
     local item trail
     local len w=0
     local cols rows max_cols max_rows c r i j
@@ -233,6 +234,7 @@ menu() {
     local return_key=() return_fn=() keys
     local start_col avail_rows
     local can_select=0
+    local search
 
     get_terminal_size </dev/tty
     get_cursor_pos </dev/tty && start_col=$__COL__ && [[ $__COL__ -gt 1 ]] && printf "%$((COLUMNS-__COL__+3))s" ' '$'\r' >&2
@@ -321,19 +323,23 @@ menu() {
 
     draw_line() {
         local i j
-        for ((i=0; i<cols; i++)); do
-            idx=$((($1+irow)+(i+icol)*rows))
-            local c=$'\e[0m'"${colors[$idx]}" && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'"${colors[$idx]}"
-            if [[ -n ${selected[$idx]} ]]; then
-                echo -ne "$c*\e[33;48;5;239m" >&2
-                echo -n "${disp[$idx]%?}" >&2
-            else
-                echo -ne "$c" >&2
-                echo -n "${disp[$idx]}" >&2
-            fi
-        done
-        get_cursor_pos </dev/tty
-        [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
+        if [[ $1 -lt $list_size ]]; then
+            for ((i=0; i<cols; i++)); do
+                idx=$((($1+irow)+(i+icol)*rows))
+                local c=$'\e[0m'"${colors[$idx]}" && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'"${colors[$idx]}"
+                if [[ -n ${selected[$idx]} ]]; then
+                    echo -ne "$c*\e[33;48;5;239m" >&2
+                    echo -n "${disp[$idx]%?}" >&2
+                else
+                    echo -ne "$c" >&2
+                    echo -n "${disp[$idx]}" >&2
+                fi
+            done
+            get_cursor_pos </dev/tty
+            [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
+        else
+            printf "\e[0m%${COLUMNS}s" ' ' >&2
+        fi
         if [[ $1 -eq $((rows-1)) ]]; then
             echo -ne "$__NSH_DRAWLINE_END__" >&2
             draw_footer
@@ -347,11 +353,17 @@ menu() {
         local lbs=$((lls*2+2))
         local bs="$(printf "%${lbs}s" ' ')" && bs="${bs//?/\\b}"
         local num_selected=${#selected[@]}
-        if [[ $num_selected -gt 0 ]]; then
-            local bs2="$(printf "%$((${#num_selected}+3))s" ' ')" && bs="$bs${bs2//?/\\b}"
-            bs="$bs"$'\e[0;30;43m'"[*$num_selected]"
+        if [[ -n $search ]]; then
+            echo -ne "\e[${COLUMNS}D" >&2
+            echo -ne "\e[0;39;41m$search" >&2
+            printf "%$((COLUMNS-${#search}))s\e[0m" "[$list_size]" >&2
+        else
+            if [[ $num_selected -gt 0 ]]; then
+                local bs2="$(printf "%$((${#num_selected}+3))s" ' ')" && bs="$bs${bs2//?/\\b}"
+                bs="$bs"$'\e[0;30;43m'"[*$num_selected]"
+            fi
+            printf "$bs\e[0;30;48;5;248m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
         fi
-        printf "$bs\e[0;30;48;5;248m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
     }
 
     for ((j=0; j<rows; j++)); do
@@ -431,8 +443,6 @@ menu() {
         if [[ "$keys" == *$KEY* ]]; then
             idx=$(((y+irow)+(x+icol)*rows))
             item="${list[$idx]}"
-            show_cursor >&2
-            enable_echo >&2 </dev/tty
             local quit=yes
             for ((i=0; i<${#return_key[@]}; i++)); do
                 if [[ "${return_key[$i]}" == *"$KEY"* ]]; then
@@ -499,8 +509,10 @@ menu() {
                             # when idx == list_size-1, j key doesn't do anything
                             [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
                             draw_line $y
-                            echo -ne "\e[${COLUMNS}D" >&2
-                            [[ $y -gt 0 ]] && echo -ne "\e[${y}A" >&2
+                            if [[ $y -lt $((rows-1)) ]]; then
+                                echo -ne "\e[${COLUMNS}D" >&2
+                                [[ $y -gt 0 ]] && echo -ne "\e[${y}A" >&2
+                            fi
                         fi
                     fi
                     ;;
@@ -521,10 +533,61 @@ menu() {
                     if [[ $KEY == $'\e' && ${#selected[@]} -gt 0 ]]; then
                         selected=()
                         NEXT_KEY=g
+                    elif [[ $KEY == $'\e' && -n $search ]]; then
+                        search=
+                        list=("${list_org[@]}")
+                        disp=("${disp_org[@]}")
+                        colors=("${colors_org[@]}")
+                        list_size=${#list[@]}
+                        x=0 y=0 icol=0 irow=0
+                        for ((i=0; i<rows; i++)); do
+                            draw_line $i
+                        done
                     else
                         x=-1 # to lose focus
                         break
                     fi
+                    ;;
+                /)
+                    list_org=("${list[@]}")
+                    disp_org=("${disp[@]}")
+                    colors_org=("${colors[@]}")
+                    list_size_org=${#list[@]}
+                    x=99999 y=99999 icol=0 irow=0
+                    search=/
+                    while true; do
+                        for ((i=0; i<rows; i++)); do
+                            draw_line $i
+                        done
+                        get_key KEY
+                        case $KEY in
+                            $'\e'*|$'\t')
+                                [[ $search == / ]] && search=
+                                break
+                                ;;
+                            $'\177'|$'\b')
+                                search="${search%?}"
+                                [[ -z $search ]] && search=/
+                                ;;
+                            *)
+                                search="$search$KEY"
+                                ;;
+                        esac
+                        item="${search#/}"
+                        list=() disp=() colors=()
+                        for ((i=0; i<$list_size_org; i++)); do
+                            if [[ "${list_org[$i]}" == *"$item"* ]]; then
+                                list+=("${list_org[$i]}")
+                                disp+=("${disp_org[$i]}")
+                                colors+=("${colors_org[$i]}")
+                            fi
+                        done
+                        list_size=${#list[@]}
+                    done
+                    x=0 y=0 icol=0 irow=0
+                    for ((i=0; i<rows; i++)); do
+                        draw_line $i
+                    done
                     ;;
             esac
         fi
