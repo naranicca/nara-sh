@@ -22,11 +22,11 @@ nsh_print_prompt() {
     local NSH_PROMPT_SEPARATOR='\xee\x82\xb0'
     local git_stat git_color
     IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
-    if [[ -z $git_stat ]]; then
+    if [[ -z $__GIT_STAT__ ]]; then
         echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
     else
         local c2=$((git_color+10))
-        echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR\e[${c2}m$NSH_PROMPT_SEPARATOR\e[30;${c2}m$git_stat\e[0;${git_color}m$NSH_PROMPT_SEPARATOR\e[0m "
+        echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR\e[${c2}m$NSH_PROMPT_SEPARATOR\e[30;${c2}m$__GIT_STAT__\e[0;${git_color}m$NSH_PROMPT_SEPARATOR\e[0m "
     fi
 }
 
@@ -310,6 +310,7 @@ menu() {
     fi
     w=$((COLUMNS/cols))
     [[ $cols -gt 1 && $rows -lt $avail_rows ]] && rows=$avail_rows
+    [[ -n $marker_func ]] && w=$((w-2))
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
             trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
@@ -328,8 +329,8 @@ menu() {
     if [[ -n $marker_func ]]; then
         for ((i=0; i<list_size; i++)); do
             markers[$i]="$($marker_func "${list[$i]}")"
-            [[ -n ${markers[$i]} ]] && disp[$i]="${disp[$i]%?}"
         done
+        w=$((w+2))
     fi
 
     draw_line() {
@@ -340,10 +341,10 @@ menu() {
                 c=$'\e[0m'"${colors[$idx]}" && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'"${colors[$idx]}"
                 if [[ -n ${selected[$idx]} ]]; then
                     echo -ne $'\e[0m'"${markers[$idx]}$c*\e[33;48;5;239m" >&2
-                    echo -n "${disp[$idx]%?}" >&2
+                    [[ $col -gt 1 ]] && echo -n "${disp[$idx]%?}" >&2 || echo -n "${disp[$idx]}" >&2
                 elif [[ -n ${markers[$idx]} ]]; then
                     echo -ne $'\e[0m'"${markers[$idx]}$c " >&2
-                    echo -n "${disp[$idx]%?}" >&2
+                    [[ $col -gt 1 ]] && echo -n "${disp[$idx]%?}" >&2 || echo -n "${disp[$idx]}" >&2
                 else
                     echo -ne "$c" >&2
                     echo -n "${disp[$idx]}" >&2
@@ -545,11 +546,9 @@ menu() {
                         idx=$(((y+irow)+(x+icol)*rows))
                         echo "${list[$idx]}"
                     else
-                        item=
                         for ((i=0; i<list_size; i++)); do
-                            [[ -n ${selected[$i]} ]] && item="$item ${list[$i]}"
+                            [[ -n ${selected[$i]} ]] && echo "${list[$i]}"
                         done
-                        echo "${item# }"
                     fi
                     break
                     ;;
@@ -678,6 +677,54 @@ git_status()  {
         echo "$color"
         echo "$filenames;"
     fi
+}
+
+git() {
+    local line op files
+    git_branch_name() {
+        command git rev-parse --abbrev-ref HEAD 2>/dev/null
+    }
+    while true; do
+        IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+        if [[ $# -eq 0 ]]; then
+            if [[ -n $__GIT_CHANGES__ ]]; then
+                IFS=$'\n' read -d '' -a files < <(command ls -d * | menu --select --color-func put_filecolor --marker-func git_marker)
+            fi
+            paint_cyan() {
+                echo -e '\e[36m'
+            }
+            if [[ ${#files[@]} -gt 0 ]]; then
+                echo "$files"
+                op="$(menu diff commit revert log --color-func paint_cyan)"
+            else
+                files=.
+                op="$(menu diff pull commit push revert log branch --color-func paint_cyan)"
+            fi
+        elif [[ $# -gt 1 ]]; then
+            command git "$@"
+            break
+        else
+            op="$1" && shift
+        fi
+        [[ -z $op ]] && break
+        if [[ $op == diff ]]; then
+            eval "command git diff $files"
+        elif [[ $op == pull ]]; then
+            eval "command git pull origin $(git_branch_name)"
+        elif [[ $op == commit ]]; then
+            eval "command git commit $files"
+        elif [[ $op == push ]]; then
+            eval "command git push origin $(git_branch_name)"
+        elif [[ $op == revert ]]; then
+            eval "command git checkout -- $files"
+        elif [[ $op == log ]]; then
+            eval "command git log --decorate --color=always --oneline --graph $files"
+        elif [[ $op == branch ]]; then
+            command git branch -r 2>/dev/null | sed 's/^[ *]*//' | grep "^$remote/" | sed -n '/ -> /!p'
+        else
+            eval "command git $op $files" 
+        fi
+    done
 }
 
 play2048() {
@@ -911,20 +958,32 @@ read_command() {
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
                         cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sort --ignore-case --version-sort)"
                         if [[ "$cand" == *$'\n'* ]]; then
-                            cand="$(echo -e "$cand" | menu --color-func put_filecolor --select --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"')"
+                            IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --select --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"')
                             echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
                         fi
-                        if [[ $cand == "%&\$#!@" ]]; then
-                            toggle_dotglob
-                        elif [[ -n "$cand" ]]; then
+                        if [[ ${#cand[@]} -le 1 ]]; then
+                            cand="${cand[0]}"
+                            if [[ $cand == "%&\$#!@" ]]; then
+                                toggle_dotglob
+                            elif [[ -n "$cand" ]]; then
+                                word="${pre:$iword}"
+                                echo -ne "${word//?/\\b}$cand" >&2
+                                pre="${pre:0:$iword}$cand"
+                                cmd="$pre$post"
+                                cur=${#pre}
+                                ichunk=$cur
+                                [[ -f "$word" ]] && NEXT_KEY=\  && break
+                            else
+                                break
+                            fi
+                        else
+                            cand="$(printf '"%s" ' "${cand[@]}")"
                             word="${pre:$iword}"
                             echo -ne "${word//?/\\b}$cand" >&2
                             pre="${pre:0:$iword}$cand"
                             cmd="$pre$post"
                             cur=${#pre}
                             ichunk=$cur
-                            [[ -f "$word" ]] && NEXT_KEY=\  && break
-                        else
                             break
                         fi
                     done
@@ -1061,15 +1120,20 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'quit; echo >&2')"
-                [[ -z "$ret" ]] && break
-                ret="$(strip_escape "$ret")"
-                if [[ "$ret" == "%\$#@^%\$" ]]; then
-                    toggle_dotglob
-                elif [[ -d "$ret" ]]; then
-                    cd "$ret"
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'quit; echo >&2')
+                [[ ${#ret[@]} -eq 0 ]] && break
+                if [[ ${#ret[@]} -eq 1 ]]; then
+                    ret="$(strip_escape "$ret")"
+                    if [[ "$ret" == "%\$#@^%\$" ]]; then
+                        toggle_dotglob
+                    elif [[ -d "$ret" ]]; then
+                        cd "$ret"
+                    else
+                        [[ -x "$ret" ]] && ret="./$ret"
+                        break
+                    fi
                 else
-                    [[ -x "$ret" ]] && ret="./$ret"
+                    ret="$(printf '"%s" ' "${ret[@]}")"
                     break
                 fi
                 echo -ne '\e[A\e[0m\e[J' >&2
