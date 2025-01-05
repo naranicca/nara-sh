@@ -145,6 +145,10 @@ strip_escape() {
     fi
 }
 
+strip_spaces() {
+    sed -e 's/^[ ]*//g' -e 's/[ ]*$//' <<< "$1"
+}
+
 pipe_context() {
     local c='>>'
     [[ -t 0 ]] && c='->'
@@ -988,7 +992,8 @@ __NSH_DRAWLINE_END__= && [[ $__COL__ -gt $COLUMNS ]] && __NSH_DRAWLINE_END__=$'\
 ############################################################################
 nsh() {
     local history=() history_sizse=0
-    local command
+    local command ret
+    local tbeg telapsed
 
     show_cursor
     enable_line_wrapping
@@ -1029,7 +1034,23 @@ nsh() {
             echo -ne '\e[A\e[0m\e[J' >&2
             [[ -n $ret ]] && command="$ret " || command=
         elif [[ -n $command ]]; then
+            tbeg=$(get_timestamp)
             eval "$command"
+            ret=$?
+            telapsed=$((($(get_timestamp)-tbeg+500)/1000))
+            command="$(strip_spaces "$command")"
+            get_cursor_pos
+            [[ $__COL__ -gt 1 ]] && echo $'\e[0;30;43m'"\n"$'\e[0m'
+            [[ $ret -ne 0 ]] && echo -e "\e[0;31m[$ret returned]\e[0m"
+            if [ $telapsed -gt 0 ]; then
+                local h=$((telapsed/3600))
+                local m=$(((telapsed%3600)/60))
+                local s=$((telapsed%60))
+                echo -n $'\e[0;33m['
+                [[ $h > 0 ]] && echo -n "${h}h "
+                [[ $h > 0 || $m > 0 ]] && echo -n "${m}m "
+                echo "${s}s elapsed]"$'\e[0m'
+            fi
             # save command to history
             history_size=${#history[@]}
             if [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$command" ]]; then
