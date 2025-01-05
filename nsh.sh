@@ -357,13 +357,23 @@ menu() {
             echo -ne "\e[${COLUMNS}D" >&2
             echo -ne "\e[0;39;41m$search" >&2
             printf "%$((COLUMNS-${#search}))s\e[0m" "[$list_size]" >&2
-        else
+        elif [[ $idx -ge 0 && $idx -lt $list_size ]]; then
             if [[ $num_selected -gt 0 ]]; then
                 local bs2="$(printf "%$((${#num_selected}+3))s" ' ')" && bs="$bs${bs2//?/\\b}"
                 bs="$bs"$'\e[0;30;43m'"[*$num_selected]"
             fi
             printf "$bs\e[0;30;48;5;248m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
         fi
+    }
+
+    quit() {
+        x=9999 y=9999
+        for ((i=0; i<rows; i++)); do
+            draw_line $i
+        done
+        [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))B" >&2
+        echo >&2
+        return
     }
 
     for ((j=0; j<rows; j++)); do
@@ -1003,7 +1013,7 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"' --key '~' 'echo $HOME' --key r 'echo ./')"
+                ret="$(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'quit; echo >&2')"
                 [[ -z "$ret" ]] && break
                 ret="$(strip_escape "$ret")"
                 if [[ "$ret" == "%\$#@^%\$" ]]; then
