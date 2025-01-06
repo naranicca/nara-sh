@@ -20,7 +20,7 @@ NSH_COLOR_LNK=$'\e[96m'
 
 nsh_print_prompt() {
     local NSH_PROMPT_SEPARATOR='\xee\x82\xb0'
-    local git_stat git_color
+    local git_color
     IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
     if [[ -z $__GIT_STAT__ ]]; then
         echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
@@ -58,7 +58,7 @@ show_cursor() {
 }
 
 get_terminal_size() {
-    read -r LINES COLUMNS < <(stty size)
+    IFS=\  read -r LINES COLUMNS < <(stty size)
 }
 
 # CAUTION: index starts at 1 not 0
@@ -215,11 +215,12 @@ fuzzy_word() {
 }
 
 put_filecolor() {
-    if [[ -h "${1%/}" ]]; then
+    local f="${1/#\~\//$HOME\/}"
+    if [[ -h "${f%/}" ]]; then
         echo "$NSH_COLOR_LNK"
-    elif [[ -d "$1" ]]; then
+    elif [[ -d "$f" ]]; then
         echo "$NSH_COLOR_DIR"
-    elif [[ -x "$1" ]]; then
+    elif [[ -x "$f" ]]; then
         echo "$NSH_COLOR_EXE"
     fi
 }
@@ -327,9 +328,16 @@ menu() {
         done
     fi
     if [[ -n $marker_func ]]; then
+        local marker_exists=0
         for ((i=0; i<list_size; i++)); do
             markers[$i]="$($marker_func "${list[$i]}")"
+            [[ -n ${markers[$i]} ]] && marker_exists=1
         done
+        if [[ $marker_exists -ne 0 ]]; then
+            for ((i=0; i<list_size; i++)); do
+                [[ -z ${markers[$i]} ]] && markers[$i]=' '
+            done
+        fi
         w=$((w+2))
     fi
 
@@ -341,10 +349,10 @@ menu() {
                 c=$'\e[0m'"${colors[$idx]}" && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'"${colors[$idx]}"
                 if [[ -n ${selected[$idx]} ]]; then
                     echo -ne $'\e[0m'"${markers[$idx]}$c*\e[33;48;5;239m" >&2
-                    [[ $col -gt 1 ]] && echo -n "${disp[$idx]%?}" >&2 || echo -n "${disp[$idx]}" >&2
+                    echo -n "${disp[$idx]%?}" >&2
                 elif [[ -n ${markers[$idx]} ]]; then
-                    echo -ne $'\e[0m'"${markers[$idx]}$c " >&2
-                    [[ $col -gt 1 ]] && echo -n "${disp[$idx]%?}" >&2 || echo -n "${disp[$idx]}" >&2
+                    echo -ne $'\e[0m'"${markers[$idx]}$c" >&2
+                    echo -n "${disp[$idx]}" >&2
                 else
                     echo -ne "$c" >&2
                     echo -n "${disp[$idx]}" >&2
@@ -380,7 +388,11 @@ menu() {
             printf "$bs\e[0;30;48;5;248m[%${lls}s/%${lls}s]\e[0m" $((idx+1)) $list_size >&2
         fi
     }
-
+    print_selected() {
+        for ((i=0; i<list_size; i++)); do
+            [[ -n ${selected[$i]} ]] && echo "${list[$i]}"
+        done
+    }
     quit() {
         x=9999 y=9999
         for ((i=0; i<rows; i++)); do
@@ -546,9 +558,7 @@ menu() {
                         idx=$(((y+irow)+(x+icol)*rows))
                         echo "${list[$idx]}"
                     else
-                        for ((i=0; i<list_size; i++)); do
-                            [[ -n ${selected[$i]} ]] && echo "${list[$i]}"
-                        done
+                        print_selected
                     fi
                     break
                     ;;
@@ -598,10 +608,10 @@ menu() {
                                 search="$search$KEY"
                                 ;;
                         esac
-                        item="${search#/}"
+                        item="${search#/}" && item="${item,,}"
                         list=() disp=() colors=() markers=()
                         for ((i=0; i<$list_size_org; i++)); do
-                            if [[ "${list_org[$i]}" == *"$item"* ]]; then
+                            if [[ "${list_org[$i],,}" == *"$item"* ]]; then
                                 list+=("${list_org[$i]}")
                                 disp+=("${disp_org[$i]}")
                                 colors+=("${colors_org[$i]}")
@@ -956,7 +966,7 @@ read_command() {
                     while true; do
                         chunk="${pre:$ichunk}"
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
-                        cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sort --ignore-case --version-sort)"
+                        cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sed "s@^$HOME/@~/@" | sort --ignore-case --version-sort)"
                         if [[ "$cand" == *$'\n'* ]]; then
                             IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --select --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"')
                             echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
@@ -966,6 +976,7 @@ read_command() {
                             if [[ $cand == "%&\$#!@" ]]; then
                                 toggle_dotglob
                             elif [[ -n "$cand" ]]; then
+                                cand="${cand/#$HOME\//\~\/}"
                                 word="${pre:$iword}"
                                 echo -ne "${word//?/\\b}$cand" >&2
                                 pre="${pre:0:$iword}$cand"
@@ -1057,9 +1068,10 @@ read_command() {
 # init
 get_terminal_size
 printf "%${COLUMNS}s" ' '
+printf '\b\b\b    '
 get_cursor_pos
 echo -ne "\e[${COLUMNS}D"
-__NSH_DRAWLINE_END__= && [[ $__COL__ -gt $COLUMNS ]] && __NSH_DRAWLINE_END__=$'\b'
+__NSH_DRAWLINE_END__= && [[ $__COL__ -lt $COLUMNS ]] && __NSH_DRAWLINE_END__=$'\b'
 
 ############################################################################
 # main loop
@@ -1087,13 +1099,13 @@ nsh() {
                 fi
                 echo "$m"
             fi
-        elif [[ -n $__GIT_CHANGES__ ]]; then
+        elif [[ $__GIT_CHANGES__ == *?\;* ]]; then
             if [[ "$__GIT_CHANGES__;" == *";$1;"* ]]; then
                 echo -e '\e[0;41m '
             elif [[ "$__GIT_CHANGES__;" == *";!!$1;"* ]]; then
                 echo -e '\e[37;41m!'
             elif [[ "$__GIT_CHANGES__;" == *";??$1;"* ]]; then
-                echo -e '?'
+                echo -e '\e[30;48;5;248m?'
             else
                 echo \ 
             fi
@@ -1106,11 +1118,11 @@ nsh() {
         if [[ "$command" == $'\t' ]]; then
             # explore
             local line dirs files ret
-            local git_stat git_color
+            local git_color
             while true; do
                 IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
-                [[ -n $git_stat ]] && git_stat=$' \e[30;'"$((git_color+10))m($git_stat)"$'\e[0m'
-                echo -e "\r\e[30;48;5;248m$(dirs)$git_stat\e[30;48;5;248m\e[K\e[0m" >&2
+                [[ -n $__GIT_STAT__ ]] && __GIT_STAT__=$' \e[30;'"$((git_color+10))m($__GIT_STAT__)"$'\e[0m'
+                echo -e "\r\e[30;48;5;248m$(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
                 dirs=() files=()
                 [[ "$(pwd)" != / ]] && dirs+=("../")
                 while IFS= read line; do
@@ -1120,7 +1132,7 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'quit; echo >&2')
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'print_selected; quit; echo >&2')
                 [[ ${#ret[@]} -eq 0 ]] && break
                 if [[ ${#ret[@]} -eq 1 ]]; then
                     ret="$(strip_escape "$ret")"
@@ -1133,7 +1145,7 @@ nsh() {
                         break
                     fi
                 else
-                    ret="$(printf '"%s" ' "${ret[@]}")"
+                    ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
                     break
                 fi
                 echo -ne '\e[A\e[0m\e[J' >&2
@@ -1158,7 +1170,7 @@ nsh() {
                 [[ $h > 0 || $m > 0 ]] && ret+="${m}m "
                 ret+="${s}s elapsed]"$'\e[0m'
             fi
-            [[ -n $ret ]] && echo "$ret"
+            [[ -n $ret ]] && echo "$ret"$'\e[J'
             # save command to history
             history_size=${#history[@]}
             if [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$command" ]]; then
