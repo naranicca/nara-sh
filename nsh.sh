@@ -282,15 +282,34 @@ menu() {
     [[ $max_rows -lt $avail_rows ]] && max_rows=$avail_rows
     [[ $list_size -lt $max_rows ]] && max_cols=1
 
+    disp=() colors=() selected=()
+    if [[ -n $color_func ]]; then
+        for ((i=0; i<list_size; i++)); do
+            colors[$i]="$($color_func "${list[$i]}")"
+        done
+    fi
+    if [[ -n $marker_func ]]; then
+        local marker_exists=0
+        for ((i=0; i<list_size; i++)); do
+            markers[$i]="$($marker_func "${list[$i]}")"
+            [[ -n ${markers[$i]} ]] && marker_exists=1
+        done
+        if [[ $marker_exists -ne 0 ]]; then
+            for ((i=0; i<list_size; i++)); do
+                [[ -z ${markers[$i]} ]] && markers[$i]=' '
+            done
+        fi
+    fi
+
     hide_cursor >&2
     disable_echo >&2 </dev/tty
+    disable_line_wrapping >&2
 
-    disp=() colors=() selected=()
     if [[ $list_size -lt 100 ]]; then
         for ((i=0; i<list_size; i++)); do
             disp[$i]="$(wc "$wcparam" <<< "${list[$i]}")"
             [[ $wcparam == -c ]] && disp[$i]=$((${disp[$i]-1}))
-            len="$((${disp[$i]}+2))"
+            len="$((${disp[$i]}+3))"
             [[ $len -gt $w ]] && w=$len
         done
         cols=$((COLUMNS/w))
@@ -310,6 +329,7 @@ menu() {
         max_cols=$(((list_size+rows-1)/rows))
     fi
     w=$((COLUMNS/cols))
+    [[ ${#markers[@]} -gt 0 ]] && w=$((w-2))
     [[ $cols -gt 1 && $rows -lt $avail_rows ]] && rows=$avail_rows
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
@@ -321,23 +341,6 @@ menu() {
             disp[$i]="${list[$i]:0:$w}"
         done
     fi
-    if [[ -n $color_func ]]; then
-        for ((i=0; i<list_size; i++)); do
-            colors[$i]="$($color_func "${list[$i]}")"
-        done
-    fi
-    if [[ -n $marker_func ]]; then
-        local marker_exists=0
-        for ((i=0; i<list_size; i++)); do
-            markers[$i]="$($marker_func "${list[$i]}")"
-            [[ -n ${markers[$i]} ]] && marker_exists=1
-        done
-        if [[ $marker_exists -ne 0 ]]; then
-            for ((i=0; i<list_size; i++)); do
-                [[ -z ${markers[$i]} ]] && markers[$i]=' '
-            done
-        fi
-    fi
 
     draw_line() {
         local i j c
@@ -347,25 +350,29 @@ menu() {
                 c=$'\e[0m'"${colors[$idx]}" && [[ $x == $i && $y == $1 ]] && c=$'\e[0;7m'"${colors[$idx]}"
                 if [[ -n ${selected[$idx]} ]]; then
                     echo -ne $'\e[0m'"${markers[$idx]}$c*\e[33;48;5;239m" >&2
-                    echo -n "${disp[$idx]%?}" >&2
+                    if [[ $cols -gt 1 ]]; then
+                        echo -n "${disp[$idx]%?}"$'\e[0m' >&2
+                    else
+                        echo -n "${disp[$idx]}"$'\e[0m' >&2
+                    fi
                 elif [[ -n ${markers[$idx]} ]]; then
                     echo -ne $'\e[0m'"${markers[$idx]}$c" >&2
-                    echo -n "${disp[$idx]}" >&2
+                    echo -n "${disp[$idx]}"$'\e[0m' >&2
                 else
                     echo -ne "$c" >&2
-                    echo -n "${disp[$idx]}" >&2
+                    echo -n "${disp[$idx]}"$'\e[0m' >&2
                 fi
             done
-            get_cursor_pos </dev/tty
-            [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
-        else
-            printf "\e[0m%${COLUMNS}s" ' ' >&2
         fi
         if [[ $1 -eq $((rows-1)) ]]; then
+            get_cursor_pos
+            printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
             echo -ne "$__NSH_DRAWLINE_END__" >&2
             draw_footer
             echo -ne "\e[${COLUMNS}D" >&2
             [[ $rows -gt 1 ]] && echo -ne "\e[$((rows-1))A" >&2
+        else
+            echo -e '\e[K' >&2
         fi
     }
     draw_footer() {
@@ -401,6 +408,7 @@ menu() {
         return
     }
 
+    echo -ne '\e[J' >&2
     for ((j=0; j<rows; j++)); do
         draw_line $j
     done
@@ -447,13 +455,14 @@ menu() {
                     draw_line $ypre
                     if [[ $ypre -ne $((rows-1)) ]]; then
                         echo -ne "\e[${COLUMNS}D" >&2
-                        [[ $ypre -gt 0 ]] && echo -ne "\e[${ypre}A" >&2
+                        echo -ne "\e[$((ypre+1))A" >&2
                     fi
                 fi
                 [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
                 draw_line $y
                 if [[ $y -lt $((rows-1)) ]]; then
-                    echo -ne "\e[$((rows-1-y))B" >&2
+                    [[ $((rows-2-y)) -gt 0 ]] && echo -ne "\e[$((rows-2-y))B" >&2
+                    echo -ne "\e[${COLUMNS}C" >&2
                     draw_footer
                     echo -ne "\e[${COLUMNS}D\e[$((rows-1))A" >&2
                 fi
@@ -544,10 +553,7 @@ menu() {
                             # when idx == list_size-1, j key doesn't do anything
                             [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
                             draw_line $y
-                            if [[ $y -lt $((rows-1)) ]]; then
-                                echo -ne "\e[${COLUMNS}D" >&2
-                                [[ $y -gt 0 ]] && echo -ne "\e[${y}A" >&2
-                            fi
+                            [[ $y -lt $((rows-1)) ]] && echo -ne "\e[$((y+1))A" >&2
                         fi
                     fi
                     ;;
@@ -632,6 +638,7 @@ menu() {
     echo -ne '\e[0m\e[J' >&2
     show_cursor >&2
     enable_echo >&2 </dev/tty
+    enable_line_wrapping >&2
 }
 
 git_status()  {
@@ -734,6 +741,8 @@ git() {
         else
             eval "command git $op $files" 
         fi
+        printf "%${COLUMNS}s\n" ' ' | sed 's/./=/g'
+        [[ $? -ne 0 ]] && command git status
     done
 }
 
@@ -1132,12 +1141,15 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'print_selected; quit; echo >&2')
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo -n @@@@; print_selected; quit; echo >&2')
                 [[ ${#ret[@]} -eq 0 ]] && break
                 if [[ ${#ret[@]} -eq 1 ]]; then
                     ret="$(strip_escape "$ret")"
                     if [[ "$ret" == "%\$#@^%\$" ]]; then
                         toggle_dotglob
+                    elif [[ "$ret" == @@@@* ]]; then
+                        ret="${ret#@@@@}"
+                        break
                     elif [[ -d "$ret" ]]; then
                         cd "$ret"
                     else
