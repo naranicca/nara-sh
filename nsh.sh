@@ -311,7 +311,6 @@ menu() {
     fi
     w=$((COLUMNS/cols))
     [[ $cols -gt 1 && $rows -lt $avail_rows ]] && rows=$avail_rows
-    [[ -n $marker_func ]] && w=$((w-2))
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
             trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
@@ -338,7 +337,6 @@ menu() {
                 [[ -z ${markers[$i]} ]] && markers[$i]=' '
             done
         fi
-        w=$((w+2))
     fi
 
     draw_line() {
@@ -609,9 +607,10 @@ menu() {
                                 ;;
                         esac
                         item="${search#/}" && item="${item,,}"
+                        item="$(fuzzy_word "${item//\ /}")"
                         list=() disp=() colors=() markers=()
                         for ((i=0; i<$list_size_org; i++)); do
-                            if [[ "${list_org[$i],,}" == *"$item"* ]]; then
+                            if [[ "${list_org[$i],,}" == *$item* ]]; then
                                 list+=("${list_org[$i]}")
                                 disp+=("${disp_org[$i]}")
                                 colors+=("${colors_org[$i]}")
@@ -629,7 +628,8 @@ menu() {
         fi
     done
 
-    [[ $start_col -gt 1 ]] && echo -ne "\e[A\e[$((start_col-1))C\e[J\e[0m" >&2
+    [[ $start_col -gt 1 ]] && echo -ne "\e[A\e[$((start_col-1))C" >&2
+    echo -ne '\e[0m\e[J' >&2
     show_cursor >&2
     enable_echo >&2 </dev/tty
 }
@@ -947,7 +947,7 @@ read_command() {
                     if [[ $cur -le $iword ]]; then
                         pre="${cmd:0:$cur}"
                         if [[ $pre == *\ * ]]; then
-                            pre="${pre% *}"
+                            pre="${pre% *} "
                             iword=${#pre}
                         else
                             iword=0
