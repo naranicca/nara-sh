@@ -267,7 +267,8 @@ menu() {
             shift && return_key+=("$1")
             shift && return_fn+=("$1") # if fn ends with '...', menu will not end after running the function
         else
-            list+=("$1")
+            item="${1//\\n/}"
+            [[ -n "$item" ]] && list+=("$item")
         fi
         shift
     done
@@ -705,7 +706,8 @@ git() {
         IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
         if [[ $# -eq 0 ]]; then
             if [[ -n $__GIT_CHANGES__ ]]; then
-                IFS=$'\n' read -d '' -a files < <(command ls -d * | menu --select --color-func put_filecolor --marker-func git_marker)
+                IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;\?\?/\;}"
+                IFS=$'\n' read -d '' -a files < <(menu "${files[@]}" --select --color-func put_filecolor --marker-func git_marker)
             fi
             paint_cyan() {
                 echo -e '\e[36m'
