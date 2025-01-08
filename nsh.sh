@@ -279,11 +279,7 @@ menu() {
     fi
     list_size=${#list[@]}
     [[ $list_size -eq 0 ]] && return 0
-    [[ $max_rows == *% ]] && max_rows=$((LINES*${max_rows%?}/100))
-    [[ $max_rows -lt $avail_rows ]] && max_rows=$avail_rows
-    [[ $list_size -lt $max_rows ]] && max_cols=1
-
-    disp=() colors=() selected=()
+    colors=() markers=() selected=()
     if [[ -n $color_func ]]; then
         for ((i=0; i<list_size; i++)); do
             colors[$i]="$($color_func "${list[$i]}")"
@@ -306,6 +302,14 @@ menu() {
     disable_echo >&2 </dev/tty
     disable_line_wrapping >&2
 
+    [[ $max_rows == *% ]] && max_rows=$((LINES*${max_rows%?}/100))
+    if [[ $max_rows -lt $avail_rows || # when we have plenty of empty rows below the cursor
+          $avail_rows -gt 1 ]]; then   # or we don't need to add empty rows
+        max_rows=$avail_rows
+    fi
+    [[ $list_size -le $max_rows ]] && max_cols=1
+
+    disp=()
     if [[ $list_size -lt 100 ]]; then
         for ((i=0; i<list_size; i++)); do
             disp[$i]="$(wc "$wcparam" <<< "${list[$i]}")"
@@ -317,6 +321,7 @@ menu() {
         [[ -n $max_cols && $cols -gt $max_cols ]] && cols=$max_cols
         [[ $cols -lt 1 ]] && cols=1
     else
+        # too many items to calculate the width of each item
         cols=1
     fi
     rows=$(((list_size+cols-1)/cols))
@@ -1077,12 +1082,14 @@ read_command() {
 }
 
 # init
+disable_line_wrapping
 get_terminal_size
 printf "%${COLUMNS}s" ' '
 printf '\b\b\b    '
 get_cursor_pos
 echo -ne "\e[${COLUMNS}D"
 __NSH_DRAWLINE_END__= && [[ $__COL__ -lt $COLUMNS ]] && __NSH_DRAWLINE_END__=$'\b'
+enable_line_wrapping
 
 ############################################################################
 # main loop
