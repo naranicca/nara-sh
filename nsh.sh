@@ -372,7 +372,7 @@ menu() {
         fi
         if [[ $1 -eq $((rows-1)) ]]; then
             get_cursor_pos
-            printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
+            [[ $__COL__ -lt $COLUMNS ]] && printf "%$((COLUMNS-__COL__+1))s" ' ' >&2
             echo -ne "$__NSH_DRAWLINE_END__" >&2
             draw_footer
             echo -ne "\e[${COLUMNS}D" >&2
@@ -703,22 +703,31 @@ git_status()  {
 }
 
 git() {
-    local line op files
+    local line op files remote
     git_branch_name() {
         command git rev-parse --abbrev-ref HEAD 2>/dev/null
     }
     while true; do
         IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
         if [[ $# -eq 0 ]]; then
-            if [[ -n $__GIT_CHANGES__ ]]; then
-                IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;\?\?/\;}"
-                IFS=$'\n' read -d '' -a files < <(menu "${files[@]}" --select --color-func put_filecolor --marker-func git_marker)
+            if [[ -z "$files" ]]; then
+                if [[ -n $__GIT_CHANGES__ ]]; then
+                    IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;\?\?/\;}"
+                    IFS=$'\n' read -d '' -a files < <(menu "${files[@]}" --select --color-func put_filecolor --marker-func git_marker)
+                fi
+                if [[ ${#files[@]} -gt 0 ]]; then
+                    files="$(printf '\"%s\" ' "${files[@]}")"
+                else
+                    files=
+                fi
             fi
             paint_cyan() {
                 echo -e '\e[36m'
             }
-            if [[ ${#files[@]} -gt 0 ]]; then
-                echo "$files"
+            if [[ -n "$files" && "$files" != \. ]]; then
+                echo -ne $'\e[A'
+                nsh_print_prompt
+                echo "git: $files"
                 op="$(menu diff commit revert log --color-func paint_cyan)"
             else
                 files=.
@@ -730,26 +739,52 @@ git() {
         else
             op="$1" && shift
         fi
-        [[ -z $op ]] && break
-        if [[ $op == diff ]]; then
-            eval "command git diff $files"
-        elif [[ $op == pull ]]; then
-            eval "command git pull origin $(git_branch_name)"
-        elif [[ $op == commit ]]; then
-            eval "command git commit $files"
-        elif [[ $op == push ]]; then
-            eval "command git push origin $(git_branch_name)"
-        elif [[ $op == revert ]]; then
-            eval "command git checkout -- $files"
-        elif [[ $op == log ]]; then
-            eval "command git log --decorate --color=always --oneline --graph $files"
-        elif [[ $op == branch ]]; then
-            command git branch -r 2>/dev/null | sed 's/^[ *]*//' | grep "^$remote/" | sed -n '/ -> /!p'
+        if [[ -z $op ]]; then
+            if [[ -z "$files" || "$files" == \. ]]; then
+                echo -ne '\e[A\e[0m\e[J'
+                break
+            else
+                files=\.
+            fi
         else
-            eval "command git $op $files" 
+            if [[ $op == diff ]]; then
+                line="git diff $files"
+            elif [[ $op == pull ]]; then
+                line="git pull origin $(git_branch_name)"
+            elif [[ $op == commit ]]; then
+                line="git commit $files"
+            elif [[ $op == push ]]; then
+                line="git push origin $(git_branch_name)"
+            elif [[ $op == revert ]]; then
+                line="git checkout -- $files"
+            elif [[ $op == log ]]; then
+                line="git log --decorate --color=always --oneline --graph $files"
+            elif [[ $op == branch ]]; then
+                git_branch() {
+                    while IFS=$'\n' read line; do
+                        [[ "$line" != \(HEAD\ *detached\ * ]] && echo "$line"
+                    done < <(LANGUAGE=en_US.UTF-8 command git branch 2>/dev/null | sed 's/[ *]*//')
+                    for remote in $(command git remote 2>/dev/null); do
+                        echo "$remote"
+                        command git branch -r 2>/dev/null | sed 's/^[ *]*//' | grep "^$remote/" | sed -n '/ -> /!p'
+                    done
+                }
+                line="$(git_branch | menu)"
+                [[ -n "$line" ]] && line="git checkout ${line#origin\/}"
+            else
+                line="git $op $files" 
+            fi
+            if [[ -z "$line" ]]; then
+                [[ -z "$files" || "$files" == \. ]] && break
+                files=.
+            fi
+            echo -ne '\e[A'
+            nsh_print_prompt
+            echo "$line"
+            eval "command $line"
         fi
-        printf "%${COLUMNS}s\n" ' ' | sed 's/./=/g'
-        [[ $? -ne 0 ]] && command git status
+        nsh_print_prompt
+        echo 'git'
     done
 }
 
@@ -906,7 +941,7 @@ read_command() {
     local cur=0
     local pre post cand word chunk
     local iword ichunk
-    local KEY NEXT_KEY
+    local KEY
     shopt -s nocaseglob
     update_dotglob() 
     {
@@ -922,8 +957,8 @@ read_command() {
     }
     update_dotglob
 
-    [[ $1 == "--prefix" ]] && prefix="$2" && shift && shift && echo -ne "$prefix" >&2
-    [[ $1 == "--cmd" ]] && cmd="$2" && cur=${#cmd} && shift && shift && echo -n "$cmd" >&2
+    [[ $1 == --prefix ]] && prefix="$2" && shift && shift && echo -ne "$prefix" >&2
+    [[ $1 == --cmd ]] && cmd="$2" && cur=${#cmd} && shift && shift && echo -n "$cmd" >&2
     iword=$cur && [[ "$cmd" == *\ * ]] && iword="${cmd% *} " && iword=${#iword}
     ichunk=$iword
 
@@ -1100,6 +1135,7 @@ nsh() {
     local history=() history_sizse=0
     local command ret
     local tbeg telapsed
+    local NEXT_KEY
 
     show_cursor
     enable_line_wrapping
@@ -1131,6 +1167,44 @@ nsh() {
             fi
         fi
     }
+    nsheval() {
+        [[ $# -gt 0 ]] && command="$@"
+        tbeg=$(get_timestamp)
+        trap 'abcd &>/dev/null' INT
+        eval "$command"
+        ret=$?
+        telapsed=$((($(get_timestamp)-tbeg+500)/1000))
+        command="$(strip_spaces "$command")"
+        get_cursor_pos
+        [[ $__COL__ -gt 1 ]] && echo $'\e[0;30;43m'"\n"$'\e[0m'
+        [[ $ret -ne 0 ]] && ret=$'\e[0;31m'"[$ret returned]"$'\e[0m' || ret=
+        if [ $telapsed -gt 0 ]; then
+            local h=$((telapsed/3600))
+            local m=$(((telapsed%3600)/60))
+            local s=$((telapsed%60))
+            ret+=$'\e[0;33m['
+            [[ $h > 0 ]] && ret+="${h}h "
+            [[ $h > 0 || $m > 0 ]] && ret+="${m}m "
+            ret+="${s}s elapsed]"$'\e[0m'
+        fi
+        [[ -n $ret ]] && echo "$ret"$'\e[J'
+        # save command to history
+        history_size=${#history[@]}
+        if [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$command" ]]; then
+            history+=("$command")
+            local li=$((${#history[@]}-1))
+            if [[ $li -ge 3 && "${history[$li]}" == "${history[$((li-2))]}" && "${history[$((li-1))]}" == "${history[$((li-3))]}" ]]; then
+                history=("${history[@]:0:$((${#history[@]}-2))}")
+            fi
+            if [ ${#history[@]} -ge $HISTSIZE ]; then
+                history=("${history[@]:$((${#history[@]}-HISTSIZE))}")
+                history_idx=$((history_idx-${#history[@]}+HISTSIZE))
+                [[ $history_idx -lt 0 ]] && history_idx=0
+            fi
+        fi
+        command=
+        trap - INT
+    }
 
     while true; do
         read_command --prefix "$(nsh_print_prompt)" --cmd "$command" command
@@ -1152,18 +1226,28 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo @@@@dotglob@@@@' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo @@@@; print_selected; quit; echo >&2' --key H 'echo ../')
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo @@@@dotglob@@@@' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo @@@@; print_selected; quit; echo >&2' --key H 'echo ../' --key $'\07' 'echo @@@@git@@@@')
                 [[ ${#ret[@]} -eq 0 ]] && break
                 if [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '@@@@'* ]]; then
                     if [[ "${ret[0]}" == '@@@@dotglob@@@@' ]]; then
                         toggle_dotglob
+                        ret=
+                    elif [[ "${ret[0]}" == '@@@@git@@@@' ]]; then
+                        echo -ne '\e[A\e[J'
+                        nsh_print_prompt
+                        echo git
+                        nsheval git
+                        ret=
                         break
                     elif [[ "${ret[0]}" == '@@@@' ]]; then
                         unset ret[0]
                         [[ ${#ret[@]} -eq 0 ]] && break
+                        ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
+                    elif [[ ${#ret[@]} -gt 0 ]]; then
+                        ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
+                    else
+                        break
                     fi
-                    ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
-                    break
                 else
                     ret="$(strip_escape "$ret")"
                     if [[ -d "$ret" ]]; then
@@ -1178,41 +1262,7 @@ nsh() {
             echo -ne '\e[A\e[0m\e[J' >&2
             [[ -n $ret ]] && command="$ret " || command=
         elif [[ -n $command ]]; then
-            tbeg=$(get_timestamp)
-            trap 'abcd &>/dev/null' INT
-            eval "$command"
-            ret=$?
-            telapsed=$((($(get_timestamp)-tbeg+500)/1000))
-            command="$(strip_spaces "$command")"
-            get_cursor_pos
-            [[ $__COL__ -gt 1 ]] && echo $'\e[0;30;43m'"\n"$'\e[0m'
-            [[ $ret -ne 0 ]] && ret=$'\e[0;31m'"[$ret returned]"$'\e[0m' || ret=
-            if [ $telapsed -gt 0 ]; then
-                local h=$((telapsed/3600))
-                local m=$(((telapsed%3600)/60))
-                local s=$((telapsed%60))
-                ret+=$'\e[0;33m['
-                [[ $h > 0 ]] && ret+="${h}h "
-                [[ $h > 0 || $m > 0 ]] && ret+="${m}m "
-                ret+="${s}s elapsed]"$'\e[0m'
-            fi
-            [[ -n $ret ]] && echo "$ret"$'\e[J'
-            # save command to history
-            history_size=${#history[@]}
-            if [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$command" ]]; then
-                history+=("$command")
-                local li=$((${#history[@]}-1))
-                if [[ $li -ge 3 && "${history[$li]}" == "${history[$((li-2))]}" && "${history[$((li-1))]}" == "${history[$((li-3))]}" ]]; then
-                    history=("${history[@]:0:$((${#history[@]}-2))}")
-                fi
-                if [ ${#history[@]} -ge $HISTSIZE ]; then
-                    history=("${history[@]:$((${#history[@]}-HISTSIZE))}")
-                    history_idx=$((history_idx-${#history[@]}+HISTSIZE))
-                    [[ $history_idx -lt 0 ]] && history_idx=0
-                fi
-            fi
-            command=
-            trap - INT
+            nsheval
         fi
     done
 }
