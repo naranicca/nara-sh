@@ -1166,6 +1166,7 @@ nsh() {
             [[ -n $ret ]] && command="$ret " || command=
         elif [[ -n $command ]]; then
             tbeg=$(get_timestamp)
+            trap 'abcd &>/dev/null' INT
             eval "$command"
             ret=$?
             telapsed=$((($(get_timestamp)-tbeg+500)/1000))
@@ -1198,6 +1199,7 @@ nsh() {
                 fi
             fi
             command=
+            trap - INT
         fi
     done
 }
