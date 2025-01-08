@@ -335,8 +335,8 @@ menu() {
         max_cols=$(((list_size+rows-1)/rows))
     fi
     w=$((COLUMNS/cols))
-    [[ ${#markers[@]} -gt 0 ]] && w=$((w-2))
     [[ $cols -gt 1 && $rows -lt $avail_rows ]] && rows=$avail_rows
+    [[ ${#markers[@]} -gt 0 ]] && w=$((w-2))
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
             trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
@@ -905,7 +905,7 @@ read_command() {
     local cmd=
     local cur=0
     local pre post cand word chunk
-    local iword=0 ichunk=0
+    local iword ichunk
     local KEY NEXT_KEY
     shopt -s nocaseglob
     update_dotglob() 
@@ -924,6 +924,8 @@ read_command() {
 
     [[ $1 == "--prefix" ]] && prefix="$2" && shift && shift && echo -ne "$prefix" >&2
     [[ $1 == "--cmd" ]] && cmd="$2" && cur=${#cmd} && shift && shift && echo -n "$cmd" >&2
+    iword=$cur && [[ "$cmd" == *\ * ]] && iword="${cmd% *} " && iword=${#iword}
+    ichunk=$iword
 
     echo -ne '\e[J'
     while true; do
@@ -971,7 +973,7 @@ read_command() {
                     fi
                 fi
                 ;;
-            $'\t') # tab
+            $'\t') # tab completion
                 # ls abc/def/g
                 #    ^       ^
                 #    iword   ichunk
@@ -999,7 +1001,7 @@ read_command() {
                                 cmd="$pre$post"
                                 cur=${#pre}
                                 ichunk=$cur
-                                [[ -f "$word" ]] && NEXT_KEY=\  && break
+                                [[ -f "${word/#\~/$HOME}" ]] && NEXT_KEY=\  && break
                             else
                                 break
                             fi
@@ -1150,24 +1152,26 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "%\$#@^%\$"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo -n @@@@; print_selected; quit; echo >&2')
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo @@@@dotglob@@@@' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo @@@@; print_selected; quit; echo >&2' --key H 'echo ../')
                 [[ ${#ret[@]} -eq 0 ]] && break
-                if [[ ${#ret[@]} -eq 1 ]]; then
-                    ret="$(strip_escape "$ret")"
-                    if [[ "$ret" == "%\$#@^%\$" ]]; then
+                if [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '@@@@'* ]]; then
+                    if [[ "${ret[0]}" == '@@@@dotglob@@@@' ]]; then
                         toggle_dotglob
-                    elif [[ "$ret" == @@@@* ]]; then
-                        ret="${ret#@@@@}"
                         break
-                    elif [[ -d "$ret" ]]; then
+                    elif [[ "${ret[0]}" == '@@@@' ]]; then
+                        unset ret[0]
+                        [[ ${#ret[@]} -eq 0 ]] && break
+                    fi
+                    ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
+                    break
+                else
+                    ret="$(strip_escape "$ret")"
+                    if [[ -d "$ret" ]]; then
                         cd "$ret"
                     else
                         [[ -x "$ret" ]] && ret="./$ret"
                         break
                     fi
-                else
-                    ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
-                    break
                 fi
                 echo -ne '\e[A\e[0m\e[J' >&2
             done
