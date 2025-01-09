@@ -2,11 +2,13 @@
 
 ##############################################################################
 # configs
+NSH_DEFAULT_CONFIG="
 __NSH_VERSION__='0.2.0'
-__NSH_SHOW_HIDDEN_FILES__=0
 
 HISTSIZE=1000
 NSH_MENU_HEIGHT=20%
+NSH_SHOW_HIDDEN_FILES=0
+NSH_INFO_PROMPT=$'\e[31m>\e[33m>\e[32m>\e[0m'
 
 NSH_COLOR_TXT=$'\e[37m'
 NSH_COLOR_CMD=$'\e[32m'
@@ -17,6 +19,11 @@ NSH_COLOR_DIR=$'\e[94m'
 NSH_COLOR_EXE=$'\e[32m'
 NSH_COLOR_IMG=$'\e[95m'
 NSH_COLOR_LNK=$'\e[96m'
+
+# aliases
+alias ls='command ls --color=auto'
+"
+eval "$NSH_DEFAULT_CONFIG"
 
 nsh_print_prompt() {
     local NSH_PROMPT_SEPARATOR='\xee\x82\xb0'
@@ -124,6 +131,20 @@ close_screen() {
     printf '\e[2J' # clear the terminal
     printf '\e[;r' # reset the scroll region
     printf '\e[?1049l' # restore main screen buffer
+}
+
+# since alias doesn't work in the script, define a function with the same name
+(return 0 2>/dev/null) || alias() {
+    local l="$@"
+    local n="${l%%=*}"
+    local c="${l#*=}"
+    [[ $c != *\{\}* ]] && c="$c {}"
+    if [[ $c == \'* || $c == \" ]]; then
+        [[ $c != *"${c:0:1}" ]] && echo "unmatched quote" >&2 && return 1
+        c="${c:1:$((${#c}-2))}"
+    fi
+    #eval "$n() { $c \"\$@\"; }"
+    eval "$n() { ${c/\{\}/\"\$@\"}; }"
 }
 
 strlen() {
@@ -400,9 +421,14 @@ menu() {
         fi
     }
     print_selected() {
-        for ((i=0; i<list_size; i++)); do
-            [[ -n ${selected[$i]} ]] && echo "${list[$i]}"
-        done
+        local idx=$(((y+irow)+(x+icol)*rows))
+        if [[ ${#selected[@]} -gt 0 ]]; then
+            for ((i=0; i<list_size; i++)); do
+                [[ -n ${selected[$i]} ]] && echo "${list[$i]}"
+            done
+        elif [[ $1 == force ]]; then
+            echo "${list[$idx]}"
+        fi
     }
     quit() {
         x=9999 y=9999
@@ -564,12 +590,7 @@ menu() {
                     fi
                     ;;
                 $'\n')
-                    if [[ ${#selected[@]} -eq 0 ]]; then
-                        idx=$(((y+irow)+(x+icol)*rows))
-                        echo "${list[$idx]}"
-                    else
-                        print_selected
-                    fi
+                    print_selected force
                     break
                     ;;
                 q|$'\e')
@@ -667,8 +688,8 @@ git_status()  {
                 color=91
                 if [[ "$line" == *modified:* ]]; then
                     fname="$(echo $line | sed 's/.*modified:[ ]*//')"
+                    [[ "$line" == *both\ modified:* ]] && fname="!!$fname"
                     filenames="$filenames;$fname"
-                    [[ "$line" == *both\ modified:* ]] && filenames="!!$filenames"
                 fi
                 #break
                 ;;
@@ -703,16 +724,41 @@ git_status()  {
 }
 
 git() {
-    local line op files remote
+    local line op files remote file branch hash
     git_branch_name() {
         command git rev-parse --abbrev-ref HEAD 2>/dev/null
     }
     while true; do
         IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
-        if [[ $# -eq 0 ]]; then
+        if [[ $__GIT_CHANGES__ == *\;\!\!* ]]; then
+            # having conflicts
+            echo "$NSH_INFO_PROMPT Resolve conflicts first"
+            while true; do
+                files=()
+                while read file; do
+                    [[ $file == \!\!* ]] && files+=("${file#??}")
+                done <<< "${__GIT_CHANGES__//;/$'\n'}"
+                file="$(menu "${files[@]}" --color-func put_filecolor --marker-func git_marker)"
+                [[ -z "$file" ]] && return
+                nsh_preview "$file"
+                if [[ $(grep -c '^<\+ HEAD' "$file" 2>/dev/null) -eq 0 ]]; then
+                    echo -n "$NSH_INFO_PROMPT $file was resolved. Stage the file? (y/n) "
+                    get_key KEY; echo "$KEY"
+                    [[ Yy == *$KEY* ]] && command git add "$file"
+                    IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+                fi
+            done
+            if [[ $__GIT_CHANGES__ == *\!\!* ]]; then
+                echo "$NSH_INFO_PROMPT Resolving conflicts was stopped"
+                command git status
+            else
+                echo "$NSH_INFO_PROMPT All conflicts were resolved"
+                command git commit
+            fi
+        elif [[ $# -eq 0 ]]; then
             if [[ -z "$files" ]]; then
                 if [[ -n $__GIT_CHANGES__ ]]; then
-                    IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;\?\?/\;}"
+                    IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;[\?\!][\?\!]/\;}"
                     IFS=$'\n' read -d '' -a files < <(menu "${files[@]}" --select --color-func put_filecolor --marker-func git_marker)
                 fi
                 if [[ ${#files[@]} -gt 0 ]]; then
@@ -758,7 +804,29 @@ git() {
             elif [[ $op == revert ]]; then
                 line="git checkout -- $files"
             elif [[ $op == log ]]; then
-                line="git log --decorate --color=always --oneline --graph $files"
+                line="$(eval "command git log --oneline $files" | menu)"
+                if [[ -n "$line" ]]; then
+                    hash="${line%% *}"
+                    hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
+                    command git log --color=always -n 1 --stat "$hash"
+                    op="$(menu -c 1 'Checkout this commit' 'Roll back to this commit' 'Roll back but keep the changes' 'Edit commit' --color-func paint_cyan)"
+                    if [[ "$op" == Checkout* ]]; then
+                        command git checkout "$hash"
+                    elif [[ "$op" == Roll\ back\ to* ]]; then
+                        echo -n "$NSH_INFO_PROMPT You will lose the commits. Continue? (y/n) "
+                        get_key KEY; echo "$KEY"
+                        [[ yY == *$KEY* ]] && command git reset --hard "$hash"
+                    elif [[ "$op" == Roll\ back\ * ]]; then
+                        echo -n "$NSH_INFO_PROMPT Roll back to this commit? You can cancel rollback by run "git restore FILE" and git pull (y/n) "
+                        get_key KEY; echo "$KEY"
+                        [[ yY == *$KEY* ]] && command git reset --soft $hash && command git restore --staged .
+                    else
+                        op=log
+                        continue
+                    fi
+                    return
+                fi
+                continue
             elif [[ $op == branch ]]; then
                 git_branch() {
                     while IFS=$'\n' read line; do
@@ -769,8 +837,32 @@ git() {
                         command git branch -r 2>/dev/null | sed 's/^[ *]*//' | grep "^$remote/" | sed -n '/ -> /!p'
                     done
                 }
-                line="$(git_branch | menu)"
-                [[ -n "$line" ]] && line="git checkout ${line#origin\/}"
+                branch="$((echo '+ New branch'; git_branch) | menu -c 1)"
+                if [[ "$branch" == '+ New branch' ]]; then
+                    echo -n "$NSH_INFO_PROMPT New branch name: "
+                    read line
+                    [[ -n "$line" ]] && line="git checkout -b $line"
+                elif [[ -n "$branch" ]]; then
+                    echo -ne "\e[A\r$(nsh_print_prompt) git branch: $branch"
+                    line="$(menu checkout merge delete --color-func paint_cyan)"
+                    if [[ "$line" == checkout ]]; then
+                        line="git checkout ${branch#origin\/}"
+                    elif [[ "$line" == merge ]]; then
+                        line="git merge ${branch#origin\/}"
+                    elif [[ "$line" == delete ]]; then
+                        if [[ "$branch" == origin\/* ]]; then
+                            echo -ne "$NSH_INFO_PROMPT \e[31m${branch#*/} branch will be deleted from repository. Continue? (y/n)\e[0m "
+                            get_key KEY; echo "$KEY"
+                            [[ yY == *$KEY* ]] && line="git push origin --delete ${branch#*/}" || line=
+                        else
+                            echo -n "$NSH_INFO_PROMPT local branch ${branch#*/} will be deleted. Continue? (y/n) "
+                            get_key KEY; echo "$KEY"
+                            [[ yY == *$KEY* ]] && line="git branch -D $branch" || line=
+                        fi
+                    fi
+                else
+                    continue
+                fi
             else
                 line="git $op $files" 
             fi
@@ -778,10 +870,11 @@ git() {
                 [[ -z "$files" || "$files" == \. ]] && break
                 files=.
             fi
-            echo -ne '\e[A'
+            echo -ne '\e[A\r\e[J'
             nsh_print_prompt
             echo "$line"
             eval "command $line"
+            [[ "$line" == 'git status'* ]] && return
         fi
         nsh_print_prompt
         echo 'git'
@@ -945,14 +1038,14 @@ read_command() {
     shopt -s nocaseglob
     update_dotglob() 
     {
-        if [[ $__NSH_SHOW_HIDDEN_FILES__ -ne 0 ]]; then
+        if [[ $NSH_SHOW_HIDDEN_FILES -ne 0 ]]; then
             shopt -s dotglob
         else
             shopt -u dotglob
         fi
     }
     toggle_dotglob() {
-        [[ $__NSH_SHOW_HIDDEN_FILES__ -ne 0 ]] && __NSH_SHOW_HIDDEN_FILES__=0 || __NSH_SHOW_HIDDEN_FILES__=1
+        [[ $NSH_SHOW_HIDDEN_FILES -ne 0 ]] && NSH_SHOW_HIDDEN_FILES=0 || NSH_SHOW_HIDDEN_FILES=1
         update_dotglob
     }
     update_dotglob
@@ -1134,11 +1227,28 @@ enable_line_wrapping
 nsh() {
     local history=() history_sizse=0
     local command ret
+    local regsiter register_mode
+    local trash_path=~/.cache/nsh/trash
     local tbeg telapsed
     local NEXT_KEY
 
     show_cursor
     enable_line_wrapping
+
+    # load config
+    config() {
+        local config_file=~/.config/nsh/nshrc
+        if [[ $1 == load ]]; then
+            mkdir -p ~/.config/nsh
+            [[ ! -e $config_file ]] && echo "$NSH_DEFAULT_CONFIG" > $config_file
+        elif [[ $1 == default ]]; then
+            echo "$NSH_DEFAULT_CONFIG" > $config_file
+        else
+            nsh_preview "$config_file"
+        fi
+        source "$config_file"
+    }
+    config load
 
     git_marker() {
         local m tmp p
@@ -1205,6 +1315,13 @@ nsh() {
         command=
         trap - INT
     }
+    trash() {
+        [[ -n "$(ls -A "$trash_path" 2>/dev/null)" ]] && rm -rf "$trash_path"
+        mkdir -p "$trash_path"
+        mv "$@" "$trash_path" 2>/dev/null
+        IFS=$'\n' read -d '' -a register < <(ls -d "$trash_path"/*)
+        register_mode=mv
+    }
 
     while true; do
         read_command --prefix "$(nsh_print_prompt)" --cmd "$command" command
@@ -1226,34 +1343,57 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo @@@@dotglob@@@@' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo @@@@; print_selected; quit; echo >&2' --key H 'echo ../' --key $'\07' 'echo @@@@git@@@@')
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key $'\07' 'echo "////git////"')
                 [[ ${#ret[@]} -eq 0 ]] && break
-                if [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '@@@@'* ]]; then
-                    if [[ "${ret[0]}" == '@@@@dotglob@@@@' ]]; then
+                if [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
+                    if [[ "${ret[0]}" == '////dotglob////' ]]; then
                         toggle_dotglob
                         ret=
-                    elif [[ "${ret[0]}" == '@@@@git@@@@' ]]; then
-                        echo -ne '\e[A\e[J'
-                        nsh_print_prompt
-                        echo git
-                        nsheval git
-                        ret=
-                        break
-                    elif [[ "${ret[0]}" == '@@@@' ]]; then
-                        unset ret[0]
-                        [[ ${#ret[@]} -eq 0 ]] && break
-                        ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
-                    elif [[ ${#ret[@]} -gt 0 ]]; then
-                        ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
                     else
-                        break
+                        if [[ "${ret[0]}" == '////yank////' ]]; then
+                            if [[ ${#ret[@]} -gt 1 ]]; then
+                                unset ret[0]
+                                local d="$(pwd)"
+                                for ((i=0; i<${#ret[@]}; i++)); do
+                                    ret[$i]="$d/${ret[$i]}"
+                                done
+                                register=("${ret[@]}")
+                                register_mode=cp
+                                echo "$NSH_INFO_PROMPT yanked ${#register[@]} files"
+                                echo
+                            fi
+                        elif [[ "${ret[0]}" == '////paste////' ]]; then
+                            if [[ -n $register_mode ]]; then
+                                $register_mode "${register[@]}" .
+                                register=()
+                                register_mode=
+                            fi
+                        elif [[ "${ret[0]}" == '////delete////' ]]; then
+                            unset ret[0]
+                            echo -e "\e[A\e[0;30;46m\e[KDelete ${#ret[@]} file(s)? (yd/n)\e[0m "
+                            get_key KEY
+                            [[ yYd == *$KEY* ]] && trash "${ret[@]}"
+                        elif [[ "${ret[0]}" == '////git////' ]]; then
+                            echo -ne '\e[A\e[J'
+                            nsh_print_prompt
+                            echo git
+                            nsheval git
+                        else
+                            [[ "${ret[0]}" == '////////' ]] && unset ret[0]
+                            [[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
+                            break
+                        fi
                     fi
                 else
                     ret="$(strip_escape "$ret")"
                     if [[ -d "$ret" ]]; then
                         cd "$ret"
                     else
-                        [[ -x "$ret" ]] && ret="./$ret"
+                        if [[ $ret == *.py ]]; then
+                            ret="python $ret"
+                        elif [[ -x "$ret" ]]; then
+                            ret="./$ret"
+                        fi
                         break
                     fi
                 fi
