@@ -800,7 +800,7 @@ git() {
             elif [[ $op == commit ]]; then
                 line="git commit $files"
             elif [[ $op == push ]]; then
-                line="git push origin $(git_branch_name)"
+                line="git push origin $(git_branch_name) -f"
             elif [[ $op == revert ]]; then
                 line="git checkout -- $files"
             elif [[ $op == log ]]; then
@@ -820,6 +820,12 @@ git() {
                         echo -n "$NSH_INFO_PROMPT Roll back to this commit? You can cancel rollback by run "git restore FILE" and git pull (y/n) "
                         get_key KEY; echo "$KEY"
                         [[ yY == *$KEY* ]] && command git reset --soft $hash && command git restore --staged .
+                    elif [[ "$op" == Edit* ]]; then
+                        hash="$(command git log --oneline | grep -n "$hash")" && hash="${hash%%:*}"
+                        echo -e "\r$(nsh_print_prompt)git rebase -i @~$hash"
+                        command git rebase -i "@~$hash"
+                        op= files=
+                        continue
                     else
                         op=log
                         continue
@@ -843,7 +849,7 @@ git() {
                     read line
                     [[ -n "$line" ]] && line="git checkout -b $line"
                 elif [[ -n "$branch" ]]; then
-                    echo -ne "\e[A\r$(nsh_print_prompt) git branch: $branch"
+                    echo -e "\e[A\r$(nsh_print_prompt)git branch: $branch"
                     line="$(menu checkout merge delete --color-func paint_cyan)"
                     if [[ "$line" == checkout ]]; then
                         line="git checkout ${branch#origin\/}"
