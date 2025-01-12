@@ -733,6 +733,9 @@ git() {
     git_branch_name() {
         command git rev-parse --abbrev-ref HEAD 2>/dev/null
     }
+    paint_cyan() {
+        echo -e '\e[36m'
+    }
     [[ $# -gt 0 ]] && op="$1" && shift
     while [[ $# -gt 0 ]]; do
         files+=("$1")
@@ -740,7 +743,14 @@ git() {
     done
     while true; do
         IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
-        if [[ "$__GIT_STAT__" == run*git\ rebase\ --continue* ]]; then
+        if [[ -z $__GIT_STAT__ ]]; then
+            echo "$NSH_INFO_PROMPT This is not a git repository."
+            echo -n "$NSH_INFO_PROMPT To clone, enter the url: "
+            read line
+            [[ -z $line ]] && return 1
+            op=clone
+            files=("$line")
+        elif [[ "$__GIT_STAT__" == run*git\ rebase\ --continue* ]]; then
             command git rebase --continue
             continue
         elif [[ $__GIT_CHANGES__ == *\;\!\!* ]]; then
@@ -783,18 +793,12 @@ git() {
                     files=
                 fi
             fi
-            paint_cyan() {
-                echo -e '\e[36m'
-            }
-            echo -ne $'\e[A\r'
-            nsh_print_prompt
+            echo -ne "\e[A\r\e[J$(nsh_print_prompt)"
             if [[ -n "$files" && "$files" != \. ]]; then
                 echo "git: $files"
                 op="$(menu diff commit revert log --color-func paint_cyan --no-footer)"
                 if [[ -z "$op" ]]; then
-                    echo -ne '\e[A\e[0m\r\e[J'
-                    nsh_print_prompt
-                    echo git
+                    echo -e "\e[A\e[0m\r\e[J$(nsh_print_prompt)git"
                     files=
                     continue
                 fi
@@ -804,25 +808,29 @@ git() {
                 op="$(menu diff pull commit push revert log branch --color-func paint_cyan --no-footer)"
                 if [[ -z "$op" ]]; then
                     echo -ne '\e[A\e[0m\r\e[J'
-                    #nsh_print_prompt
-                    #echo git
                     return
                 fi
             fi
         fi
-        if [[ $op == diff ]]; then
+        if [[ "$op" == clone ]]; then
+            command git clone "${files[@]}"
+            local dir="${files[1]}"
+            [[ -z "$dir" ]] && dir="${files[0]##*/}" && dir="${dir%.git}"
+            [[ -d "$dir" ]] && command cd "$dir"
+            return
+        elif [[ "$op" == diff ]]; then
             line="git diff $files"
-        elif [[ $op == pull ]]; then
+        elif [[ "$op" == pull ]]; then
             line="git pull origin $(git_branch_name)"
-        elif [[ $op == commit ]]; then
+        elif [[ "$op" == commit ]]; then
             line="git commit $files"
-        elif [[ $op == push ]]; then
+        elif [[ "$op" == push ]]; then
             line="git push origin $(git_branch_name) -f"
-        elif [[ $op == revert ]]; then
+        elif [[ "$op" == revert ]]; then
             line="git checkout -- $files"
-        elif [[ $op == log ]]; then
-            p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always'
-            line="$(eval "command git log $p --oneline $files" | menu)"
+        elif [[ "$op" == log ]]; then
+            p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always --graph'
+            line="$(eval "command git log $p --decorate --oneline $files" | menu)"
             if [[ -n "$line" ]]; then
                 hash="${line%% *}"
                 hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
@@ -843,17 +851,17 @@ git() {
                     echo -e "\r$(nsh_print_prompt)git rebase -i @~$hash"
                     command git rebase -i "@~$hash"
                     op= files=
-                    continue
                 else
                     op=log
-                    continue
                 fi
-                return
             else
                 op=
+                continue
             fi
+            echo "$(nsh_print_prompt)git log"
+            files=
             continue
-        elif [[ $op == branch ]]; then
+        elif [[ "$op" == branch ]]; then
             git_branch() {
                 while IFS=$'\n' read line; do
                     [[ "$line" != \(HEAD\ *detached\ * ]] && echo "$line"
@@ -897,14 +905,11 @@ git() {
             [[ -z "$files" || "$files" == \. ]] && break
             files=.
         fi
-        echo -ne '\e[A\r\e[J'
-        nsh_print_prompt
-        echo "$line"
+        echo -e "\e[A\r\e[J$(nsh_print_prompt)$line"
         eval "command $line"
         [[ "$line" == 'git status'* ]] && return
         op=
-        nsh_print_prompt
-        echo 'git'
+        echo -e "$(nsh_print_prompt)git"
     done
 }
 
@@ -1325,7 +1330,7 @@ nsh() {
         get_cursor_pos
         [[ $__COL__ -gt 1 ]] && echo $'\e[0;30;43m'"\n"$'\e[0m'
         [[ $ret -ne 0 ]] && ret=$'\e[0;31m'"[$ret returned]"$'\e[0m' || ret=
-        if [ $telapsed -gt 0 ]; then
+        if [[ $telapsed -gt 0 && "$command" != git ]]; then
             local h=$((telapsed/3600))
             local m=$(((telapsed%3600)/60))
             local s=$((telapsed%60))
