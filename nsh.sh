@@ -733,6 +733,11 @@ git() {
     git_branch_name() {
         command git rev-parse --abbrev-ref HEAD 2>/dev/null
     }
+    [[ $# -gt 0 ]] && op="$1" && shift
+    while [[ $# -gt 0 ]]; do
+        files+=("$1")
+        shift
+    done
     while true; do
         IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
         if [[ "$__GIT_STAT__" == run*git\ rebase\ --continue* ]]; then
@@ -763,7 +768,10 @@ git() {
                 echo "$NSH_INFO_PROMPT All conflicts were resolved"
                 command git commit
             fi
-        elif [[ $# -eq 0 ]]; then
+        elif [[ -n "$op" && ${#files[@]} -gt 0 ]]; then
+            command git "$op" "${files[@]}"
+            break
+        else
             if [[ -z "$files" ]]; then
                 if [[ -n $__GIT_CHANGES__ ]]; then
                     IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;[\?\!][\?\!]/\;}"
@@ -778,119 +786,123 @@ git() {
             paint_cyan() {
                 echo -e '\e[36m'
             }
+            echo -ne $'\e[A\r'
+            nsh_print_prompt
             if [[ -n "$files" && "$files" != \. ]]; then
-                echo -ne $'\e[A'
-                nsh_print_prompt
                 echo "git: $files"
                 op="$(menu diff commit revert log --color-func paint_cyan --no-footer)"
-            else
-                files=.
-                op="$(menu diff pull commit push revert log branch --color-func paint_cyan --no-footer)"
-            fi
-        elif [[ $# -gt 1 ]]; then
-            command git "$@"
-            break
-        else
-            op="$1" && shift
-        fi
-        if [[ -z $op ]]; then
-            if [[ -z "$files" || "$files" == \. ]]; then
-                echo -ne '\e[A\e[0m\e[J'
-                break
-            else
-                files=\.
-            fi
-        else
-            if [[ $op == diff ]]; then
-                line="git diff $files"
-            elif [[ $op == pull ]]; then
-                line="git pull origin $(git_branch_name)"
-            elif [[ $op == commit ]]; then
-                line="git commit $files"
-            elif [[ $op == push ]]; then
-                line="git push origin $(git_branch_name) -f"
-            elif [[ $op == revert ]]; then
-                line="git checkout -- $files"
-            elif [[ $op == log ]]; then
-                p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always'
-                line="$(eval "command git log $p --oneline $files" | menu)"
-                if [[ -n "$line" ]]; then
-                    hash="${line%% *}"
-                    hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
-                    command git log --color=always -n 1 --stat "$hash"
-                    op="$(menu -c 1 'Checkout this commit' 'Roll back to this commit' 'Roll back but keep the changes' 'Edit commit' --color-func paint_cyan --no-footer)"
-                    if [[ "$op" == Checkout* ]]; then
-                        command git checkout "$hash"
-                    elif [[ "$op" == Roll\ back\ to* ]]; then
-                        echo -n "$NSH_INFO_PROMPT You will lose the commits. Continue? (y/n) "
-                        get_key KEY; echo "$KEY"
-                        [[ yY == *$KEY* ]] && command git reset --hard "$hash"
-                    elif [[ "$op" == Roll\ back\ * ]]; then
-                        echo -n "$NSH_INFO_PROMPT Roll back to this commit? You can cancel rollback by run "git restore FILE" and git pull (y/n) "
-                        get_key KEY; echo "$KEY"
-                        [[ yY == *$KEY* ]] && command git reset --soft $hash && command git restore --staged .
-                    elif [[ "$op" == Edit* ]]; then
-                        hash="$(command git log --oneline | grep -n "$hash")" && hash="${hash%%:*}"
-                        echo -e "\r$(nsh_print_prompt)git rebase -i @~$hash"
-                        command git rebase -i "@~$hash"
-                        op= files=
-                        continue
-                    else
-                        op=log
-                        continue
-                    fi
-                    return
-                fi
-                continue
-            elif [[ $op == branch ]]; then
-                git_branch() {
-                    while IFS=$'\n' read line; do
-                        [[ "$line" != \(HEAD\ *detached\ * ]] && echo "$line"
-                    done < <(LANGUAGE=en_US.UTF-8 command git branch 2>/dev/null | sed 's/[ *]*//')
-                    for remote in $(command git remote 2>/dev/null); do
-                        echo "$remote"
-                        command git branch -r 2>/dev/null | sed 's/^[ *]*//' | grep "^$remote/" | sed -n '/ -> /!p'
-                    done
-                }
-                branch="$((echo '+ New branch'; git_branch) | menu -c 1)"
-                if [[ "$branch" == '+ New branch' ]]; then
-                    echo -n "$NSH_INFO_PROMPT New branch name: "
-                    read line
-                    [[ -n "$line" ]] && line="git checkout -b $line"
-                elif [[ -n "$branch" ]]; then
-                    echo -e "\e[A\r$(nsh_print_prompt)git branch: $branch"
-                    line="$(menu checkout merge delete --color-func paint_cyan --no-footer)"
-                    if [[ "$line" == checkout ]]; then
-                        line="git checkout ${branch#origin\/}"
-                    elif [[ "$line" == merge ]]; then
-                        line="git merge ${branch#origin\/}"
-                    elif [[ "$line" == delete ]]; then
-                        if [[ "$branch" == origin\/* ]]; then
-                            echo -ne "$NSH_INFO_PROMPT \e[31m${branch#*/} branch will be deleted from repository. Continue? (y/n)\e[0m "
-                            get_key KEY; echo "$KEY"
-                            [[ yY == *$KEY* ]] && line="git push origin --delete ${branch#*/}" || line=
-                        else
-                            echo -n "$NSH_INFO_PROMPT local branch ${branch#*/} will be deleted. Continue? (y/n) "
-                            get_key KEY; echo "$KEY"
-                            [[ yY == *$KEY* ]] && line="git branch -D $branch" || line=
-                        fi
-                    fi
-                else
+                if [[ -z "$op" ]]; then
+                    echo -ne '\e[A\e[0m\r\e[J'
+                    nsh_print_prompt
+                    echo git
+                    files=
                     continue
                 fi
             else
-                line="git $op $files" 
-            fi
-            if [[ -z "$line" ]]; then
-                [[ -z "$files" || "$files" == \. ]] && break
+                echo "git"
                 files=.
+                op="$(menu diff pull commit push revert log branch --color-func paint_cyan --no-footer)"
+                if [[ -z "$op" ]]; then
+                    echo -ne '\e[A\e[0m\r\e[J'
+                    #nsh_print_prompt
+                    #echo git
+                    return
+                fi
             fi
-            echo -ne '\e[A\r\e[J'
-            nsh_print_prompt
-            echo "$line"
-            eval "command $line"
-            [[ "$line" == 'git status'* ]] && return
         fi
+        if [[ $op == diff ]]; then
+            line="git diff $files"
+        elif [[ $op == pull ]]; then
+            line="git pull origin $(git_branch_name)"
+        elif [[ $op == commit ]]; then
+            line="git commit $files"
+        elif [[ $op == push ]]; then
+            line="git push origin $(git_branch_name) -f"
+        elif [[ $op == revert ]]; then
+            line="git checkout -- $files"
+        elif [[ $op == log ]]; then
+            p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always'
+            line="$(eval "command git log $p --oneline $files" | menu)"
+            if [[ -n "$line" ]]; then
+                hash="${line%% *}"
+                hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
+                command git log --color=always -n 1 --stat "$hash"
+                op="$(menu -c 1 'Checkout this commit' 'Roll back to this commit' 'Roll back but keep the changes' 'Edit commit' --color-func paint_cyan --no-footer)"
+                if [[ "$op" == Checkout* ]]; then
+                    command git checkout "$hash"
+                elif [[ "$op" == Roll\ back\ to* ]]; then
+                    echo -n "$NSH_INFO_PROMPT You will lose the commits. Continue? (y/n) "
+                    get_key KEY; echo "$KEY"
+                    [[ yY == *$KEY* ]] && command git reset --hard "$hash"
+                elif [[ "$op" == Roll\ back\ * ]]; then
+                    echo -n "$NSH_INFO_PROMPT Roll back to this commit? You can cancel rollback by run "git restore FILE" and git pull (y/n) "
+                    get_key KEY; echo "$KEY"
+                    [[ yY == *$KEY* ]] && command git reset --soft $hash && command git restore --staged .
+                elif [[ "$op" == Edit* ]]; then
+                    hash="$(command git log --oneline | grep -n "$hash")" && hash="${hash%%:*}"
+                    echo -e "\r$(nsh_print_prompt)git rebase -i @~$hash"
+                    command git rebase -i "@~$hash"
+                    op= files=
+                    continue
+                else
+                    op=log
+                    continue
+                fi
+                return
+            else
+                op=
+            fi
+            continue
+        elif [[ $op == branch ]]; then
+            git_branch() {
+                while IFS=$'\n' read line; do
+                    [[ "$line" != \(HEAD\ *detached\ * ]] && echo "$line"
+                done < <(LANGUAGE=en_US.UTF-8 command git branch 2>/dev/null | sed 's/[ *]*//')
+                for remote in $(command git remote 2>/dev/null); do
+                    echo "$remote"
+                    command git branch -r 2>/dev/null | sed 's/^[ *]*//' | grep "^$remote/" | sed -n '/ -> /!p'
+                done
+            }
+            branch="$((echo '+ New branch'; git_branch) | menu -c 1)"
+            if [[ "$branch" == '+ New branch' ]]; then
+                echo -n "$NSH_INFO_PROMPT New branch name: "
+                read line
+                [[ -n "$line" ]] && line="git checkout -b $line"
+            elif [[ -n "$branch" ]]; then
+                echo -e "\e[A\r$(nsh_print_prompt)git branch: $branch"
+                line="$(menu checkout merge delete --color-func paint_cyan --no-footer)"
+                if [[ "$line" == checkout ]]; then
+                    line="git checkout ${branch#origin\/}"
+                elif [[ "$line" == merge ]]; then
+                    line="git merge ${branch#origin\/}"
+                elif [[ "$line" == delete ]]; then
+                    if [[ "$branch" == origin\/* ]]; then
+                        echo -ne "$NSH_INFO_PROMPT \e[31m${branch#*/} branch will be deleted from repository. Continue? (y/n)\e[0m "
+                        get_key KEY; echo "$KEY"
+                        [[ yY == *$KEY* ]] && line="git push origin --delete ${branch#*/}" || line=
+                    else
+                        echo -n "$NSH_INFO_PROMPT local branch ${branch#*/} will be deleted. Continue? (y/n) "
+                        get_key KEY; echo "$KEY"
+                        [[ yY == *$KEY* ]] && line="git branch -D $branch" || line=
+                    fi
+                fi
+            else
+                op=
+                continue
+            fi
+        else
+            line="git $op $files" 
+        fi
+        if [[ -z "$line" ]]; then
+            [[ -z "$files" || "$files" == \. ]] && break
+            files=.
+        fi
+        echo -ne '\e[A\r\e[J'
+        nsh_print_prompt
+        echo "$line"
+        eval "command $line"
+        [[ "$line" == 'git status'* ]] && return
+        op=
         nsh_print_prompt
         echo 'git'
     done
