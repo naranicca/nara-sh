@@ -730,7 +730,10 @@ git() {
     }
     while true; do
         IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
-        if [[ $__GIT_CHANGES__ == *\;\!\!* ]]; then
+        if [[ "$__GIT_STAT__" == run*git\ rebase\ --continue* ]]; then
+            command git rebase --continue
+            continue
+        elif [[ $__GIT_CHANGES__ == *\;\!\!* ]]; then
             # having conflicts
             echo "$NSH_INFO_PROMPT Resolve conflicts first"
             while true; do
