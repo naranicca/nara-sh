@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
+__NSH_VERSION__='0.2.0'
 
 ##############################################################################
 # configs
 NSH_DEFAULT_CONFIG="
-__NSH_VERSION__='0.2.0'
-
 HISTSIZE=1000
 NSH_MENU_HEIGHT=20%
 NSH_SHOW_HIDDEN_FILES=0
@@ -333,7 +332,7 @@ menu() {
     [[ $list_size -le $max_rows ]] && max_cols=1
 
     disp=()
-    if [[ $list_size -lt 100 ]]; then
+    if [[ $list_size -lt 100 && ${max_cols:-100} -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
             disp[$i]="$(wc "$wcparam" <<< "${list[$i]}")"
             [[ $wcparam == -c ]] && disp[$i]=$((${disp[$i]-1}))
@@ -366,9 +365,13 @@ menu() {
             disp[$i]="${list[$i]}$trail"
         done
     else
-        for ((i=0; i<list_size; i++)); do
-            disp[$i]="${list[$i]:0:$w}"
-        done
+        if [[ $__WRAP_OPTION_SUPPORTED__ -eq 0 ]]; then
+            for ((i=0; i<list_size; i++)); do
+                disp[$i]="${list[$i]:0:$((w-1))}"
+            done
+        else
+            disp=("${list[@]}")
+        fi
     fi
 
     draw_line() {
@@ -726,7 +729,7 @@ git_status()  {
 }
 
 git() {
-    local line op files remote file branch hash
+    local line op files remote file branch hash p
     git_branch_name() {
         command git rev-parse --abbrev-ref HEAD 2>/dev/null
     }
@@ -809,7 +812,8 @@ git() {
             elif [[ $op == revert ]]; then
                 line="git checkout -- $files"
             elif [[ $op == log ]]; then
-                line="$(eval "command git log --oneline $files" | menu)"
+                p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always'
+                line="$(eval "command git log $p --oneline $files" | menu)"
                 if [[ -n "$line" ]]; then
                     hash="${line%% *}"
                     hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
@@ -1230,6 +1234,16 @@ printf '\b\b\b    '
 get_cursor_pos
 echo -ne "\e[${COLUMNS}D"
 __NSH_DRAWLINE_END__= && [[ $__COL__ -lt $COLUMNS ]] && __NSH_DRAWLINE_END__=$'\b'
+printf "%$((COLUMNS+3))s" ' '
+get_cursor_pos
+if [[ $__COL__ -lt 5 ]]; then
+    # terminal doesn't support disable_line_wrapping
+    __WRAP_OPTION_SUPPORTED__=0
+    echo -ne '\r\e[A'
+else
+    __WRAP_OPTION_SUPPORTED__=1
+    echo -ne '\r'
+fi
 enable_line_wrapping
 
 ############################################################################
