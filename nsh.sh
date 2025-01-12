@@ -625,7 +625,7 @@ menu() {
                         for ((i=0; i<rows; i++)); do
                             draw_line $i
                         done
-                        get_key KEY
+                        get_key KEY </dev/tty
                         case $KEY in
                             $'\e'*|$'\t')
                                 [[ $search == / ]] && search=
@@ -635,7 +635,7 @@ menu() {
                                 search="${search%?}"
                                 [[ -z $search ]] && search=/
                                 ;;
-                            *)
+                            [[:print:]])
                                 search="$search$KEY"
                                 ;;
                         esac
