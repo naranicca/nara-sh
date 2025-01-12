@@ -257,7 +257,7 @@ menu() {
     local color_func marker_func initial=0
     local return_key=() return_fn=() keys
     local start_col avail_rows
-    local can_select=0
+    local can_select=0 show_footer=1
     local search
 
     get_terminal_size </dev/tty
@@ -287,6 +287,8 @@ menu() {
         elif [[ $1 == --key ]]; then
             shift && return_key+=("$1")
             shift && return_fn+=("$1") # if fn ends with '...', menu will not end after running the function
+        elif [[ $1 == --no-footer ]]; then
+            show_footer=0
         else
             item="${1//\\n/}"
             [[ -n "$item" ]] && list+=("$item")
@@ -412,7 +414,7 @@ menu() {
             echo -ne "\e[${COLUMNS}D" >&2
             echo -ne "\e[0;39;41m$search" >&2
             printf "%$((COLUMNS-${#search}))s\e[0m" "[$list_size]" >&2
-        elif [[ $idx -ge 0 && $idx -lt $list_size ]]; then
+        elif [[ $show_footer -ne 0 && $idx -ge 0 && $idx -lt $list_size ]]; then
             if [[ $num_selected -gt 0 ]]; then
                 local bs2="$(printf "%$((${#num_selected}+3))s" ' ')" && bs="$bs${bs2//?/\\b}"
                 bs="$bs"$'\e[0;30;43m'"[*$num_selected]"
@@ -777,10 +779,10 @@ git() {
                 echo -ne $'\e[A'
                 nsh_print_prompt
                 echo "git: $files"
-                op="$(menu diff commit revert log --color-func paint_cyan)"
+                op="$(menu diff commit revert log --color-func paint_cyan --no-footer)"
             else
                 files=.
-                op="$(menu diff pull commit push revert log branch --color-func paint_cyan)"
+                op="$(menu diff pull commit push revert log branch --color-func paint_cyan --no-footer)"
             fi
         elif [[ $# -gt 1 ]]; then
             command git "$@"
@@ -812,7 +814,7 @@ git() {
                     hash="${line%% *}"
                     hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
                     command git log --color=always -n 1 --stat "$hash"
-                    op="$(menu -c 1 'Checkout this commit' 'Roll back to this commit' 'Roll back but keep the changes' 'Edit commit' --color-func paint_cyan)"
+                    op="$(menu -c 1 'Checkout this commit' 'Roll back to this commit' 'Roll back but keep the changes' 'Edit commit' --color-func paint_cyan --no-footer)"
                     if [[ "$op" == Checkout* ]]; then
                         command git checkout "$hash"
                     elif [[ "$op" == Roll\ back\ to* ]]; then
@@ -853,7 +855,7 @@ git() {
                     [[ -n "$line" ]] && line="git checkout -b $line"
                 elif [[ -n "$branch" ]]; then
                     echo -e "\e[A\r$(nsh_print_prompt)git branch: $branch"
-                    line="$(menu checkout merge delete --color-func paint_cyan)"
+                    line="$(menu checkout merge delete --color-func paint_cyan --no-footer)"
                     if [[ "$line" == checkout ]]; then
                         line="git checkout ${branch#origin\/}"
                     elif [[ "$line" == merge ]]; then
