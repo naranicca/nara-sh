@@ -830,7 +830,7 @@ git() {
             line="git checkout -- $files"
         elif [[ "$op" == log ]]; then
             p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always --graph'
-            line="$(eval "command git log $p --decorate --oneline $files" | menu)"
+            line="$(eval "command git log $p --decorate --oneline $files" | menu -c 1)"
             if [[ -n "$line" ]]; then
                 hash="${line%% *}"
                 hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
@@ -1406,7 +1406,7 @@ nsh() {
                             fi
                         elif [[ "${ret[0]}" == '////paste////' ]]; then
                             if [[ -n $register_mode ]]; then
-                                $register_mode "${register[@]}" .
+                                $register_mode -r "${register[@]}" .
                                 register=()
                                 register_mode=
                             fi
