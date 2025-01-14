@@ -7,7 +7,7 @@ NSH_DEFAULT_CONFIG="
 HISTSIZE=1000
 NSH_MENU_HEIGHT=20%
 NSH_SHOW_HIDDEN_FILES=0
-NSH_INFO_PROMPT=$'\e[31m>\e[33m>\e[32m>\e[0m'
+NSH_PROMPT=$'\e[31m>\e[33m>\e[32m>\e[0m'
 
 NSH_COLOR_TXT=$'\e[37m'
 NSH_COLOR_CMD=$'\e[32m'
@@ -728,6 +728,23 @@ git_status()  {
     fi
 }
 
+ps() {
+    local param pid line
+    if [[ $# -gt 0 || ! -t 0 || ! -t 1 ]]; then
+        command ps "$@"
+    else
+        while true; do
+            #param="-o pid,command"
+            param="-a -o pid,user,command"
+            pid=$((command ps -x $param 2>/dev/null || command ps -a || command ps -ef) | menu -c 1 | awk '{print $1}')
+            [[ -z $pid ]] && break
+            echo -e "$NSH_PROMPT Kill the process $pid?"
+            echo -n '  ' && command ps -p "$pid"
+            [[ $(menu OK Cancel) == OK ]] && kill -9 $pid
+        done
+    fi
+}
+
 git() {
     local line op files remote file branch hash p
     git_branch_name() {
@@ -744,8 +761,8 @@ git() {
     while true; do
         IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
         if [[ -z $__GIT_STAT__ ]]; then
-            echo "$NSH_INFO_PROMPT This is not a git repository."
-            echo -n "$NSH_INFO_PROMPT To clone, enter the url: "
+            echo "$NSH_PROMPT This is not a git repository."
+            echo -n "$NSH_PROMPT To clone, enter the url: "
             read line
             [[ -z $line ]] && return 1
             op=clone
@@ -755,7 +772,7 @@ git() {
             continue
         elif [[ $__GIT_CHANGES__ == *\;\!\!* ]]; then
             # having conflicts
-            echo "$NSH_INFO_PROMPT Resolve conflicts first"
+            echo "$NSH_PROMPT Resolve conflicts first"
             while true; do
                 files=()
                 while read file; do
@@ -765,17 +782,17 @@ git() {
                 [[ -z "$file" ]] && return
                 nsh_preview "$file"
                 if [[ $(grep -c '^<\+ HEAD' "$file" 2>/dev/null) -eq 0 ]]; then
-                    echo -n "$NSH_INFO_PROMPT $file was resolved. Stage the file? (y/n) "
+                    echo -n "$NSH_PROMPT $file was resolved. Stage the file? (y/n) "
                     get_key KEY; echo "$KEY"
                     [[ Yy == *$KEY* ]] && command git add "$file"
                     IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
                 fi
             done
             if [[ $__GIT_CHANGES__ == *\!\!* ]]; then
-                echo "$NSH_INFO_PROMPT Resolving conflicts was stopped"
+                echo "$NSH_PROMPT Resolving conflicts was stopped"
                 command git status
             else
-                echo "$NSH_INFO_PROMPT All conflicts were resolved"
+                echo "$NSH_PROMPT All conflicts were resolved"
                 command git commit
             fi
         elif [[ -n "$op" && ${#files[@]} -gt 0 ]]; then
@@ -839,11 +856,11 @@ git() {
                 if [[ "$op" == Checkout* ]]; then
                     command git checkout "$hash"
                 elif [[ "$op" == Roll\ back\ to* ]]; then
-                    echo -n "$NSH_INFO_PROMPT You will lose the commits. Continue? (y/n) "
+                    echo -n "$NSH_PROMPT You will lose the commits. Continue? (y/n) "
                     get_key KEY; echo "$KEY"
                     [[ yY == *$KEY* ]] && command git reset --hard "$hash"
                 elif [[ "$op" == Roll\ back\ * ]]; then
-                    echo -n "$NSH_INFO_PROMPT Roll back to this commit? You can cancel rollback by run "git restore FILE" and git pull (y/n) "
+                    echo -n "$NSH_PROMPT Roll back to this commit? You can cancel rollback by run "git restore FILE" and git pull (y/n) "
                     get_key KEY; echo "$KEY"
                     [[ yY == *$KEY* ]] && command git reset --soft $hash && command git restore --staged .
                 elif [[ "$op" == Edit* ]]; then
@@ -873,7 +890,7 @@ git() {
             }
             branch="$((echo '+ New branch'; git_branch) | menu -c 1)"
             if [[ "$branch" == '+ New branch' ]]; then
-                echo -n "$NSH_INFO_PROMPT New branch name: "
+                echo -n "$NSH_PROMPT New branch name: "
                 read line
                 [[ -n "$line" ]] && line="git checkout -b $line"
             elif [[ -n "$branch" ]]; then
@@ -885,11 +902,11 @@ git() {
                     line="git merge ${branch#origin\/}"
                 elif [[ "$line" == delete ]]; then
                     if [[ "$branch" == origin\/* ]]; then
-                        echo -ne "$NSH_INFO_PROMPT \e[31m${branch#*/} branch will be deleted from repository. Continue? (y/n)\e[0m "
+                        echo -ne "$NSH_PROMPT \e[31m${branch#*/} branch will be deleted from repository. Continue? (y/n)\e[0m "
                         get_key KEY; echo "$KEY"
                         [[ yY == *$KEY* ]] && line="git push origin --delete ${branch#*/}" || line=
                     else
-                        echo -n "$NSH_INFO_PROMPT local branch ${branch#*/} will be deleted. Continue? (y/n) "
+                        echo -n "$NSH_PROMPT local branch ${branch#*/} will be deleted. Continue? (y/n) "
                         get_key KEY; echo "$KEY"
                         [[ yY == *$KEY* ]] && line="git branch -D $branch" || line=
                     fi
@@ -1402,7 +1419,7 @@ nsh() {
                                 done
                                 register=("${ret[@]}")
                                 register_mode=cp
-                                echo "$NSH_INFO_PROMPT yanked ${#register[@]} files"
+                                echo "$NSH_PROMPT yanked ${#register[@]} files"
                                 echo
                             fi
                         elif [[ "${ret[0]}" == '////paste////' ]]; then
