@@ -694,7 +694,7 @@ git_status()  {
                 if [[ "$line" == *modified:* ]]; then
                     fname="$(echo $line | sed 's/.*modified:[ ]*//')"
                     [[ "$line" == *both\ modified:* ]] && fname="!!$fname"
-                    filenames="$filenames;$fname"
+                    filenames="$filenames;${fname%%/*}"
                 fi
                 #break
                 ;;
@@ -1294,25 +1294,26 @@ nsh() {
 
     git_marker() {
         local m tmp p
+        name="${1%/}"
         if [[ -z $__GIT_STAT__ ]]; then
             # not a git repository
-            if [[ -d "$1" && -d "$1/.git" ]]; then
+            if [[ -d "$name" && -d "$name/.git" ]]; then
                 m=$'\e[42m '
-                if ! (command cd "$1"; command git diff --quiet 2>/dev/null); then
+                if ! (command cd "$name"; command git diff --quiet 2>/dev/null); then
                     m=$'\e[41m '
                 else
-                    tmp="$(command cd "$1"; LANGUAGE=en_US.UTF-8 command git status -sb | head -n 1)"
+                    tmp="$(command cd "$name"; LANGUAGE=en_US.UTF-8 command git status -sb | head -n 1)"
                     p='\[(ahead|behind) [0-9]+\]$'
                     [[ "$tmp" =~ $p ]] && m=$'\e[43m '
                 fi
                 echo "$m"
             fi
         elif [[ $__GIT_CHANGES__ == *?\;* ]]; then
-            if [[ "$__GIT_CHANGES__;" == *";$1;"* ]]; then
+            if [[ "$__GIT_CHANGES__;" == *";$name;"* ]]; then
                 echo -e '\e[0;41m '
-            elif [[ "$__GIT_CHANGES__;" == *";!!$1;"* ]]; then
+            elif [[ "$__GIT_CHANGES__;" == *";!!$name;"* ]]; then
                 echo -e '\e[37;41m!'
-            elif [[ "$__GIT_CHANGES__;" == *";??$1;"* ]]; then
+            elif [[ "$__GIT_CHANGES__;" == *";??$name;"* ]]; then
                 echo -e '\e[30;48;5;248m?'
             else
                 echo \ 
