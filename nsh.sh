@@ -1418,13 +1418,13 @@ nsh() {
                                     ret[$i]="$d/${ret[$i]}"
                                 done
                                 register=("${ret[@]}")
-                                register_mode=cp
+                                register_mode="cp -r"
                                 echo "$NSH_PROMPT yanked ${#register[@]} files"
                                 echo
                             fi
                         elif [[ "${ret[0]}" == '////paste////' ]]; then
                             if [[ -n $register_mode ]]; then
-                                $register_mode -r "${register[@]}" .
+                                $register_mode "${register[@]}" .
                                 register=()
                                 register_mode=
                             fi
