@@ -746,18 +746,18 @@ ps() {
 }
 
 git() {
-    local line op files remote file branch hash p
+    local line op files remote file branch hash p skip_resolve=0
     git_branch_name() {
         command git rev-parse --abbrev-ref HEAD 2>/dev/null
     }
     paint_cyan() {
         echo -e '\e[36m'
     }
-    [[ $# -gt 0 ]] && op="$1" && shift
-    while [[ $# -gt 0 ]]; do
-        files+=("$1")
-        shift
-    done
+    if [[ $# -gt 1 ]]; then
+        command git "$@"
+        git
+        return
+    fi
     while true; do
         IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
         if [[ -z $__GIT_STAT__ ]]; then
@@ -769,8 +769,9 @@ git() {
             files=("$line")
         elif [[ "$__GIT_STAT__" == run*git\ rebase\ --continue* ]]; then
             command git rebase --continue
+            op= files=
             continue
-        elif [[ $__GIT_CHANGES__ == *\;\!\!* ]]; then
+        elif [[ $__GIT_CHANGES__ == *\;\!\!* && $skip_resolve -eq 0 ]]; then
             # having conflicts
             echo "$NSH_PROMPT Resolve conflicts first"
             while true; do
@@ -779,7 +780,7 @@ git() {
                     [[ $file == \!\!* ]] && files+=("${file#??}")
                 done <<< "${__GIT_CHANGES__//;/$'\n'}"
                 file="$(menu "${files[@]}" --color-func put_filecolor --marker-func git_marker)"
-                [[ -z "$file" ]] && return
+                [[ -z "$file" ]] && skip_resolve=1 && break
                 nsh_preview "$file"
                 if [[ $(grep -c '^<\+ HEAD' "$file" 2>/dev/null) -eq 0 ]]; then
                     echo -n "$NSH_PROMPT $file was resolved. Stage the file? (y/n) "
@@ -795,9 +796,8 @@ git() {
                 echo "$NSH_PROMPT All conflicts were resolved"
                 command git commit
             fi
-        elif [[ -n "$op" && ${#files[@]} -gt 0 ]]; then
-            command git "$op" "${files[@]}"
-            break
+            op= files=
+            continue
         else
             if [[ -z "$files" ]]; then
                 if [[ -n $__GIT_CHANGES__ ]]; then
@@ -847,7 +847,7 @@ git() {
             line="git checkout -- $files"
         elif [[ "$op" == log ]]; then
             p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always --graph'
-            line="$(eval "command git log $p --decorate --oneline $files" | menu -c 1)"
+            line="$(eval "command git log $p --decorate --oneline $files" | menu -c 1 | strip_escape)"
             if [[ -n "$line" ]]; then
                 hash="${line%% *}"
                 hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
