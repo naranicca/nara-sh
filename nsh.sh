@@ -804,7 +804,7 @@ git() {
         if [[ -z $__GIT_STAT__ ]]; then
             echo "$NSH_PROMPT This is not a git repository."
             echo -n "$NSH_PROMPT To clone, enter the url: "
-            read line
+            read_string line
             [[ -z $line ]] && return 1
             op=clone
             files=("$line")
@@ -915,7 +915,7 @@ git() {
                 branch="$((echo '+ New branch'; git_branch) | menu -c 1)"
                 if [[ "$branch" == '+ New branch' ]]; then
                     echo -n "$NSH_PROMPT New branch name: "
-                    read line
+                    read_string line
                     [[ -n "$line" ]] && run checkout -b "$line"
                 elif [[ -n "$branch" ]]; then
                     line="$(menu checkout merge delete --color-func paint_cyan --no-footer)"
@@ -1087,6 +1087,77 @@ play2048() {
     done
     printf '%s\n' "${board[@]}" > ~/.cache/nsh/2048
     show_cursor
+}
+
+read_string() {
+    local str= && [[ $1 == --initial ]] && str="$2" && shift && shift
+    local cursor=${#str}
+    get_cursor_pos
+    show_cursor
+    while true; do
+        local cx=$((cursor%COLUMNS))
+        local cy=$((cursor/COLUMNS))
+        hide_cursor
+        move_cursor "$((__ROW__+cy));$__COL__"
+        if [[ $cursor -lt ${#str} ]]; then
+            echo "$str"
+            move_cursor "$((__ROW__+cy));$__COL__"
+        fi
+        echo -n "${str:0:$cursor}"
+        show_cursor
+        get_key KEY </dev/tty
+        case $KEY in
+        $'\e'|$'\04')
+            str=
+            break
+            ;;
+        $'\t')
+            local pre="${str:0:$cursor}"
+            local post="${str:$cursor}"
+            str="$pre    $post"
+            cursor=$((cursor+4))
+            ;;
+        $'\177'|$'\b') # backspace
+            if [ $cursor -gt 0 ]; then
+                local pre="${str:0:$cursor}"
+                local post="${str:$cursor}"
+                str="${pre%?}$post"
+                move_cursor "$((__ROW__+cy));$__COL__"
+                echo -n "$str "
+                ((cursor--))
+            fi
+            ;;
+        $'\e[3~') # del
+            local pre="${str:0:$cursor}"
+            local post="${str:$cursor}"
+            str="$pre${post:1}"
+            echo -n "$str "
+            ;;
+        $'\e[D')
+            [[ $cursor -gt 0 ]] && ((cursor--))
+            ;;
+        $'\e[C')
+            [[ $cursor -lt ${#str} ]] && ((cursor++))
+            ;;
+        $'\e[1~'|$'\e[H')
+            cursor=0
+            ;;
+        $'\e[4~'|$'\e[F')
+            cursor=${#str}
+            ;;
+        $'\n')
+            cursor=-1
+            break
+            ;;
+        [[:print:]])
+            local pre="${str:0:$cursor}"
+            local post="${str:$cursor}"
+            str="$pre$KEY$post"
+            ((cursor++))
+            ;;
+        esac
+    done
+    printf -v "${1:-str}" "%s" "$str"
 }
 
 read_command() {
@@ -1427,7 +1498,7 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key $'\07' 'echo "////git////"')
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key $'\07' 'echo "////git////"')
                 [[ ${#ret[@]} -eq 0 ]] && break
                 if [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
                     if [[ "${ret[0]}" == '////dotglob////' ]]; then
@@ -1463,10 +1534,12 @@ nsh() {
                             get_key KEY
                             echo -e "\e[A\r\e[30;48;5;248m$(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
                             [[ yYd == *$KEY* ]] && trash "${ret[@]}"
+                        elif [[ "${ret[0]}" == '////rename////' ]]; then
+                            echo -n "$NSH_PROMPT rename: "
+                            read_string --initial "${ret[1]}" line
+                            [[ -n "$line" ]] && mv "${ret[1]}" "$line"
                         elif [[ "${ret[0]}" == '////git////' ]]; then
-                            echo -ne '\e[A\e[J'
-                            nsh_print_prompt
-                            echo git
+                            echo -ne "\e[A\e[J$(nsh_print_prompt)git"
                             nsheval git
                             echo
                         else
