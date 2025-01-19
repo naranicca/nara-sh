@@ -1401,14 +1401,18 @@ nsh() {
                     else
                         if [[ "${ret[0]}" == '////yank////' ]]; then
                             if [[ ${#ret[@]} -gt 1 ]]; then
-                                unset ret[0]
-                                local d="$(pwd)"
-                                for ((i=0; i<${#ret[@]}; i++)); do
+                                local d="$(pwd)" && [[ $d == / ]] && d=
+                                for ((i=1; i<${#ret[@]}; i++)); do
                                     ret[$i]="$d/${ret[$i]}"
                                 done
+                                unset ret[0]
                                 register=("${ret[@]}")
                                 register_mode="cp -r"
-                                echo "$NSH_PROMPT yanked ${#register[@]} files"
+                                if [[ ${#register[@]} -gt 1 ]]; then
+                                    echo "$NSH_PROMPT yanked ${#register[@]} files"
+                                else
+                                    echo "$NSH_PROMPT yanked: ${register[0]/#$d\//}"
+                                fi
                                 echo
                             fi
                         elif [[ "${ret[0]}" == '////paste////' ]]; then
@@ -1419,8 +1423,9 @@ nsh() {
                             fi
                         elif [[ "${ret[0]}" == '////delete////' ]]; then
                             unset ret[0]
-                            echo -e "\e[A\e[0;30;46m\e[KDelete ${#ret[@]} file(s)? (yd/n)\e[0m "
+                            echo -e "\e[A\e[0;30;46m\e[KDelete ${#ret[@]} file(s)? (yd/n)\e[0m " >&2
                             get_key KEY
+                            echo -e "\e[A\r\e[30;48;5;248m$(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
                             [[ yYd == *$KEY* ]] && trash "${ret[@]}"
                         elif [[ "${ret[0]}" == '////git////' ]]; then
                             echo -ne '\e[A\e[J'
