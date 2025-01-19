@@ -1140,7 +1140,7 @@ read_command() {
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
                         cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sed "s@^$HOME/@~/@" | sort --ignore-case --version-sort)"
                         if [[ "$cand" == *$'\n'* ]]; then
-                            IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --select --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"')
+                            IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --select --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"' --key $'\n' 'echo "////done////$1"')
                             echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
                         fi
                         if [[ ${#cand[@]} -le 1 ]]; then
@@ -1148,6 +1148,7 @@ read_command() {
                             if [[ $cand == "%&\$#!@" ]]; then
                                 toggle_dotglob
                             elif [[ -n "$cand" ]]; then
+                                local enter=0 && [[ "$cand" == ////done////* ]] && enter=1 && cand="${cand:12:$((${#cand}-12))}"
                                 cand="${cand/#$HOME\//\~\/}"
                                 word="${pre:$iword}"
                                 echo -ne "${word//?/\\b}$cand" >&2
@@ -1155,6 +1156,7 @@ read_command() {
                                 cmd="$pre$post"
                                 cur=${#pre}
                                 ichunk=$cur
+                                [[ $enter -ne 0 ]] && NEXT_KEY=$'\n' && break
                                 [[ -f "${word/#\~/$HOME}" ]] && NEXT_KEY=\  && break
                             else
                                 break
@@ -1187,8 +1189,8 @@ read_command() {
             $'\e[A') # Up
                 if [[ ${#history[@]} -gt 0 ]]; then
                     echo -ne "${pre//?/\\b}" >&2
-                    cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key $'\177'$'\b ' 'echo "$1"')"
-                    [[ -n $cmd ]] && cmd="$cmd "
+                    cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
+                    [[ "$cmd" == ////////* ]] && cmd="${cmd:8:$((${#cmd}-8))}" && NEXT_KEY=$'\n'
                     cur=${#cmd}
                     echo -n "$cmd" >&2
                 fi
@@ -1316,6 +1318,16 @@ nsh() {
     }
     nsheval() {
         [[ $# -gt 0 ]] && command="$@"
+        [[ "$command" == '~' || "$command" == '~/'* ]] && command="$HOME/${commnad#?}"
+        if [[ -d "$command" ]]; then
+            command="cd $command"
+        elif [[ -e "$command" ]]; then
+            if [[ "$command" == *.py ]]; then
+                command="python $command"
+            elif [[ -x "$command" ]]; then
+                [[ "$command" != './'* ]] && command="./$command"
+            fi
+        fi
         tbeg=$(get_timestamp)
         trap 'abcd &>/dev/null' INT
         eval "$command"
