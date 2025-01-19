@@ -673,6 +673,58 @@ menu() {
     enable_line_wrapping >&2
 }
 
+cpmv() {
+    local src dst src_name dst_name i
+    local op='cp -r' && [[ $1 == --mv ]] && op='mv'
+    while true; do
+        if [[ $1 == --cp ]]; then
+            op='cp -r'
+        elif [[ $1 == --mv ]]; then
+            op=mv
+        else
+            break
+        fi
+        shift
+    done
+    for dst in "$@"; do :; done
+    while [[ $# -gt 1 ]]; do
+        if [[ -e "$1" ]]; then
+            src="$(sed 's/\/*$//' <<< "$1")"
+            src_name="${src##*/}" && dst_name="$dst"
+            if [[ -e "$dst" && -e "$dst/$src_name" ]]; then
+                for i in {2..999999}; do
+                    if [[ ! -e "$dst/$src_name($i)" ]]; then
+                        dst_name="$dst/$src_name($i)"
+                        break
+                    fi
+                done
+            fi
+            echo -e "[${op%% *}] $(put_filecolor "$src")${src/#$HOME\//\~\/}\e[0m --> $dst_name"
+            command $op "$src" "$dst_name"
+        else
+            echo "$1 does not exist" >&2
+        fi
+        shift
+    done
+}
+
+ps() {
+    local param pid line
+    if [[ $# -gt 0 || ! -t 0 || ! -t 1 ]]; then
+        command ps "$@"
+    else
+        while true; do
+            #param="-o pid,command"
+            param="-a -o pid,user,command"
+            pid=$((command ps -x $param 2>/dev/null || command ps -a || command ps -ef) | menu -c 1 | awk '{print $1}')
+            [[ -z $pid ]] && break
+            echo -e "$NSH_PROMPT Kill the process $pid?"
+            echo -n '  ' && command ps -p "$pid"
+            [[ $(menu OK Cancel) == OK ]] && kill -9 $pid
+        done
+    fi
+}
+
 git_status()  {
     local line str= color=0
     local filenames=;
@@ -725,23 +777,6 @@ git_status()  {
         echo "$str"
         echo "$color"
         echo "$filenames;"
-    fi
-}
-
-ps() {
-    local param pid line
-    if [[ $# -gt 0 || ! -t 0 || ! -t 1 ]]; then
-        command ps "$@"
-    else
-        while true; do
-            #param="-o pid,command"
-            param="-a -o pid,user,command"
-            pid=$((command ps -x $param 2>/dev/null || command ps -a || command ps -ef) | menu -c 1 | awk '{print $1}')
-            [[ -z $pid ]] && break
-            echo -e "$NSH_PROMPT Kill the process $pid?"
-            echo -n '  ' && command ps -p "$pid"
-            [[ $(menu OK Cancel) == OK ]] && kill -9 $pid
-        done
     fi
 }
 
@@ -1369,7 +1404,7 @@ nsh() {
         mkdir -p "$trash_path"
         mv "$@" "$trash_path" 2>/dev/null
         IFS=$'\n' read -d '' -a register < <(ls -d "$trash_path"/*)
-        register_mode=mv
+        register_mode=--mv
     }
 
     while true; do
@@ -1407,7 +1442,7 @@ nsh() {
                                 done
                                 unset ret[0]
                                 register=("${ret[@]}")
-                                register_mode="cp -r"
+                                register_mode=--cp
                                 if [[ ${#register[@]} -gt 1 ]]; then
                                     echo "$NSH_PROMPT yanked ${#register[@]} files"
                                 else
@@ -1417,7 +1452,8 @@ nsh() {
                             fi
                         elif [[ "${ret[0]}" == '////paste////' ]]; then
                             if [[ -n $register_mode ]]; then
-                                $register_mode "${register[@]}" .
+                                cpmv $register_mode "${register[@]}" .
+                                echo
                                 register=()
                                 register_mode=
                             fi
@@ -1432,6 +1468,7 @@ nsh() {
                             nsh_print_prompt
                             echo git
                             nsheval git
+                            echo
                         else
                             [[ "${ret[0]}" == '////////' ]] && unset ret[0]
                             [[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
