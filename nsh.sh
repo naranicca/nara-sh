@@ -1112,7 +1112,7 @@ read_command() {
                 ;;
             $'\177'|$'\b') # backspace
                 if [[ $cur -gt 0 ]]; then
-                    echo -ne "\b \b$post ${post//?/\\b}\b" >&2
+                    echo -n $'\b \b'"$post ${post//?/$'\b'}"$'\b' >&2
                     cmd="${pre%?}$post"
                     cur=$((cur-1))
                     # update iword
@@ -1188,7 +1188,7 @@ read_command() {
                 ;;
             $'\e[A') # Up
                 if [[ ${#history[@]} -gt 0 ]]; then
-                    echo -ne "${pre//?/\\b}" >&2
+                    echo -ne "${pre//?/\\b}\r$(nsh_print_prompt)\e[J" >&2
                     cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
                     [[ "$cmd" == ////////* ]] && cmd="${cmd:8:$((${#cmd}-8))}" && NEXT_KEY=$'\n'
                     cur=${#cmd}
@@ -1231,7 +1231,7 @@ read_command() {
                     iword=$cur
                     ichunk=$cur
                 fi
-                echo -ne "$KEY$post${post//?/\\b}" >&2
+                echo -n "$KEY$post${post//?/$'\b'}" >&2
                 ;;
         esac
     done
