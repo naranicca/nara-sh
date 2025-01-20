@@ -795,7 +795,7 @@ git() {
     }
     if [[ $# -gt 0 ]]; then
         command git "$@"
-        echo -e "$(nsh_print_prompt)git"
+        echo -e "\r$(nsh_print_prompt)git"
         git
         return
     fi
@@ -1182,7 +1182,7 @@ read_command() {
     }
     update_dotglob
 
-    [[ $1 == --prefix ]] && prefix="$2" && shift && shift && echo -ne "$prefix" >&2
+    [[ $1 == --prefix ]] && prefix="$2" && shift && shift && echo -ne "\r\e[0m$prefix" >&2
     [[ $1 == --cmd ]] && cmd="$2" && cur=${#cmd} && shift && shift && echo -n "$cmd" >&2
     iword=$cur && [[ "$cmd" == *\ * ]] && iword="${cmd% *} " && iword=${#iword}
     ichunk=$iword
@@ -1488,7 +1488,7 @@ nsh() {
             while true; do
                 IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
                 [[ -n $__GIT_STAT__ ]] && __GIT_STAT__=$' \e[30;'"$((git_color+10))m($__GIT_STAT__)"$'\e[0m'
-                echo -e "\r\e[30;48;5;248m$(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
+                echo -e "\r\e[0;30;48;5;248m$(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
                 dirs=() files=()
                 [[ "$(pwd)" != / ]] && dirs+=("../")
                 while IFS= read line; do
@@ -1498,7 +1498,7 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key $'\07' 'echo "////git////"')
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key $'\07' 'echo "////git////"' --key - 'echo "////back////"')
                 [[ ${#ret[@]} -eq 0 ]] && break
                 if [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
                     if [[ "${ret[0]}" == '////dotglob////' ]]; then
@@ -1532,7 +1532,7 @@ nsh() {
                             unset ret[0]
                             echo -e "\e[A\e[0;30;46m\e[KDelete ${#ret[@]} file(s)? (yd/n)\e[0m " >&2
                             get_key KEY
-                            echo -e "\e[A\r\e[30;48;5;248m$(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
+                            echo -e "\e[A\r\e[0;30;48;5;248m$(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
                             [[ yYd == *$KEY* ]] && trash "${ret[@]}"
                         elif [[ "${ret[0]}" == '////rename////' ]]; then
                             echo -n "$NSH_PROMPT rename: "
@@ -1542,6 +1542,8 @@ nsh() {
                             echo -ne "\e[A\e[J$(nsh_print_prompt)git"
                             nsheval git
                             echo
+                        elif [[ "${ret[0]}" == '////back////' ]]; then
+                            cd - &>/dev/null
                         else
                             [[ "${ret[0]}" == '////////' ]] && unset ret[0]
                             [[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
