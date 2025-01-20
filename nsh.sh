@@ -850,8 +850,9 @@ git() {
             fi
             dst="${files/#\"/ }" && dst="${dst%%\"*}" && [[ "$files" == *\"\ \"* ]] && dst="$dst..."
             if [[ -n "$files" && "$files" != \. ]]; then
-                op="$(menu "diff$dst" "commit$dst" "revert$dst" "log$dst" --color-func paint_cyan --no-footer)"
+                op="$(menu "diff$dst" "commit$dst" "revert$dst" "stage$dst" "log$dst" --color-func paint_cyan --no-footer)"
                 [[ -z "$op" ]] && files= && continue
+                op="${op%% *}"
             else
                 files=.
                 op="$(menu diff pull commit push revert log branch --color-func paint_cyan --no-footer)"
@@ -874,6 +875,8 @@ git() {
                 run push origin "$(git_branch_name)" -f
             elif [[ "$op" == revert ]]; then
                 run checkout -- "$files"
+            elif [[ "$op" == stage ]]; then
+                run add "$files"
             elif [[ "$op" == log ]]; then
                 p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always --graph'
                 line="$(eval "command git log $p --decorate --oneline $files" | menu -c 1 | strip_escape)"
