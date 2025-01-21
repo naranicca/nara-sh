@@ -725,6 +725,86 @@ ps() {
     fi
 }
 
+get_hsize() {
+    if [ $1 -ge 1073741824 ]; then
+        local t=$(($1*10/1073741824))
+        echo "$((t/10)).$((t%10)) G"
+    elif [ $1 -ge 1048576 ]; then
+        local t=$(($1*10/1048576))
+        echo "$((t/10)).$((t%10)) M"
+    elif [ $1 -ge 1024 ]; then
+        local t=$(($1*10/1024))
+        echo "$((t/10)).$((t%10)) K"
+    elif [ $1 -ge 0 ]; then
+        echo "$1 b"
+    fi
+}
+
+disk() {
+    disable_line_wrapping
+    local cur="$PWD"
+    df -h .
+    local bars=("          " "|         " "||        " "|||       " "||||      " "|||||     " "||||||    " "|||||||   " "||||||||  " "||||||||| " "||||||||||")
+    local stat_param='--printf=%s'
+    stat "$stat_param" . &>/dev/null || stat_param='-f%z'
+    while true; do
+        local l0=() && local l1=()
+        local s0=() && local s1=()
+        local total=0
+        local ret
+        echo -e "\r\033[4m$NSH_COLOR_DIR$PWD\033[0m ($(get_hsize $total))"
+        while read f; do
+            if [[ -d "$f" ]]; then
+                if [[ "$f" == \.\. ]]; then
+                    l0=("../" "${l0[@]}")
+                    s0=("-1" "${s0[@]}")
+                elif [[ "$f" != \. && "$f" != \.\. ]]; then
+                    l0+=("$f/")
+                    size=$(du -sk "$f" 2>/dev/null | cut -f 1)
+                    size=$((size*1024))
+                    total=$((total+size))
+                    s0+=("$size")
+                fi
+            elif [[ -e "$f" ]]; then
+                l1+=("$f")
+                size=$(stat "$stat_param" "$f" 2>/dev/null)
+                [[ -z $size ]] && size=0
+                total=$((total+size))
+                s1+=("$(stat "$stat_param" "$f" 2>/dev/null)")
+            fi
+        done < <(ls -a | sort --ignore-case)
+        local files=("${l0[@]}" "${l1[@]}")
+        local sideinfo=("${s0[@]}" "${s1[@]}")
+
+        # sort by size
+        local i j idx t
+        for ((i=0; i<$((${#files[@]}-1)); i++)); do
+            [[ ${files[$i]} == ../ ]] && continue
+            idx=$i
+            for ((j=$((i+1)); j<${#files[@]}; j++)); do
+                [[ ${sideinfo[$j]} -gt ${sideinfo[$idx]} ]] && idx=$j
+            done
+            t=${sideinfo[$i]}
+            sideinfo[$i]=${sideinfo[$idx]}
+            sideinfo[$idx]=$t
+            t="${files[$i]}"
+            files[$i]="${files[$idx]}"
+            files[$idx]="$t"
+        done
+
+        ret="$(for ((i=0; i<${#files[@]}; i++)); do
+            local p='            ' && [[ ${sideinfo[$i]} -ge 0 ]] && p="[${bars[$(((${sideinfo[$i]}*100/$total+5)/10))]}]"
+            printf "%8s %s\n" "$(get_hsize ${sideinfo[$i]})" "$p $(put_filecolor "${files[$i]}")${files[$i]}"
+        done | menu -c 1 --key $'\eq:' 'quit' | strip_escape)"
+        ret="${ret#*\] }"
+        [[ -z "$ret" ]] && break
+        [[ -d "$ret" ]] && cd "$ret"
+        echo -ne '\e[A'
+    done
+    cd "$cur"
+    enable_line_wrapping
+}
+
 git_status()  {
     local line str= color=0
     local filenames=;
