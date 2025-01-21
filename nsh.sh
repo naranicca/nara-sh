@@ -3,12 +3,14 @@ __NSH_VERSION__='0.2.0'
 
 ##############################################################################
 # configs
-NSH_DEFAULT_CONFIG="
+NSH_DEFAULT_CONFIG="# nsh preferences
 HISTSIZE=1000
 NSH_MENU_HEIGHT=20%
 NSH_SHOW_HIDDEN_FILES=0
+NSH_PROMPT_PREFIX='echo nsh' # this could be a string, a variable, or even a function, e.g. date
 NSH_PROMPT=$'\e[31m>\e[33m>\e[32m>\e[0m'
 
+# colors
 NSH_COLOR_TXT=$'\e[37m'
 NSH_COLOR_CMD=$'\e[32m'
 NSH_COLOR_VAR=$'\e[36m'
@@ -27,18 +29,24 @@ eval "$NSH_DEFAULT_CONFIG"
 nsh_print_prompt() {
     local NSH_PROMPT_SEPARATOR='\xee\x82\xb0'
     local git_color
+    local prefix="\e[0;32;40m$(eval "$NSH_PROMPT_PREFIX" 2>/dev/null || echo "$NSH_PROMPT_PREFIX")"
+    prefix="$prefix"$'\e[7m'"$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR"
     IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
     if [[ -z $__GIT_STAT__ ]]; then
-        echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
+        echo -ne "$prefix\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
     else
         local c2=$((git_color+10))
-        echo -ne "\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR\e[${c2}m$NSH_PROMPT_SEPARATOR\e[30;${c2}m$__GIT_STAT__\e[0;${git_color}m$NSH_PROMPT_SEPARATOR\e[0m "
+        echo -ne "$prefix\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR\e[${c2}m$NSH_PROMPT_SEPARATOR\e[30;${c2}m$__GIT_STAT__\e[0;${git_color}m$NSH_PROMPT_SEPARATOR\e[0m "
     fi
 }
 
-nsh_preview() {
+nsh_open() {
     vi "$1"
 }
+
+NSH_DEFAULT_CONFIG="$NSH_DEFAULT_CONFIG"$'\n'"# functions"
+NSH_DEFAULT_CONFIG="$NSH_DEFAULT_CONFIG"$'\n'"$(type nsh_print_prompt | sed 1d)"
+NSH_DEFAULT_CONFIG="$NSH_DEFAULT_CONFIG"$'\n'"$(type nsh_open | sed 1d)"
 
 show_logo() {
     disable_line_wrapping
@@ -900,7 +908,7 @@ git() {
                 done <<< "${__GIT_CHANGES__//;/$'\n'}"
                 file="$(menu "${files[@]}" --color-func put_filecolor --marker-func git_marker)"
                 [[ -z "$file" ]] && skip_resolve=1 && break
-                nsh_preview "$file"
+                nsh_open "$file"
                 if [[ $(grep -c '^<\+ HEAD' "$file" 2>/dev/null) -eq 0 ]]; then
                     echo -n "$NSH_PROMPT $file was resolved. Stage the file? (y/n) "
                     get_key KEY; echo "$KEY"
@@ -1471,7 +1479,7 @@ nsh() {
         elif [[ $1 == default ]]; then
             echo "$NSH_DEFAULT_CONFIG" > $config_file
         else
-            nsh_preview "$config_file"
+            nsh_open "$config_file"
         fi
         source "$config_file"
     }
@@ -1581,7 +1589,7 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'nsh_preview $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key $'\07' 'echo "////git////"' --key - 'echo "////back////"')
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'echo "$1"' --key o 'nsh_open $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key $'\07' 'echo "////git////"' --key - 'echo "////back////"')
                 [[ ${#ret[@]} -eq 0 ]] && break
                 if [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
                     if [[ "${ret[0]}" == '////dotglob////' ]]; then
