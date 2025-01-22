@@ -891,11 +891,12 @@ git() {
         IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
         if [[ -z $__GIT_STAT__ ]]; then
             echo "$NSH_PROMPT This is not a git repository."
-            echo -n "$NSH_PROMPT To clone, enter the url: "
-            read_string line
+            read_command --prefix "$NSH_PROMPT To clone, enter the url: " --cmd 'https://github.com/' line
             [[ -z $line ]] && return 1
-            op=clone
-            files=("$line")
+            command git clone "$line"
+            local dir="${line##*/}" && dir="${dir%.git}"
+            [[ -d "$dir" ]] && command cd "$dir"
+            return
         elif [[ "$__GIT_STAT__" == run*git\ rebase\ --continue* ]]; then
             run rebase --continue
         elif [[ $__GIT_CHANGES__ == *\;\!\!* && $skip_resolve -eq 0 ]]; then
@@ -947,13 +948,7 @@ git() {
                 [[ -z "$op" ]] && return
             fi
 
-            if [[ "$op" == clone ]]; then
-                command git clone "${files[@]}"
-                local dir="${files[1]}"
-                [[ -z "$dir" ]] && dir="${files[0]##*/}" && dir="${dir%.git}"
-                [[ -d "$dir" ]] && command cd "$dir"
-                return
-            elif [[ "$op" == diff ]]; then
+            if [[ "$op" == diff ]]; then
                 run diff "$files"
             elif [[ "$op" == pull ]]; then
                 run pull origin "$(git_branch_name)"
@@ -1293,7 +1288,7 @@ read_command() {
                     NEXT_KEY=$'\t'
                 fi
                 ;;
-            $'\04')
+            $'\04') # ctrl+D
                 if [[ -n $cmd ]]; then
                     echo '^C' >&2
                     cmd=
@@ -1322,6 +1317,13 @@ read_command() {
                             iword=0
                         fi
                     fi
+                fi
+                ;;
+            $'\e[3~') # del
+                if [[ -n "$post" ]]; then
+                    post="${post#?}"
+                    echo -n "$post "$'\b'"${post//?/$'\b'}"
+                    cmd="$pre$post"
                 fi
                 ;;
             $'\t') # tab completion
@@ -1383,7 +1385,7 @@ read_command() {
                     fi
                 fi
                 ;;
-            $'\e[A') # Up
+            $'\e[A') # up
                 if [[ ${#history[@]} -gt 0 ]]; then
                     echo -ne "${pre//?/\\b}\r$(nsh_print_prompt)\e[J" >&2
                     cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
@@ -1392,7 +1394,7 @@ read_command() {
                     echo -n "$cmd" >&2
                 fi
                 ;;
-            $'\e[B') # Down
+            $'\e[B') # down
                 if [[ -z $cmd ]]; then
                     cmd=$'\t'
                     break
@@ -1589,7 +1591,7 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'echo "$1"' --key o 'nsh_open $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key $'\07' 'echo "////git////"' --key - 'echo "////back////"')
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'print_selected force' --key o 'nsh_open $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key $'\07' 'echo "////git////"' --key - 'echo "////back////"')
                 [[ ${#ret[@]} -eq 0 ]] && break
                 if [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
                     if [[ "${ret[0]}" == '////dotglob////' ]]; then
