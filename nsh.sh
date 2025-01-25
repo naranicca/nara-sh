@@ -264,14 +264,17 @@ menu() {
     local color_func marker_func initial=0
     local return_key=() return_fn=() keys
     local start_col avail_rows
-    local can_select=0 show_footer=1
+    local can_select= show_footer=1
     local search
 
+    hide_cursor >&2
+    disable_echo >&2 </dev/tty
+    disable_line_wrapping >&2
     get_terminal_size </dev/tty
     get_cursor_pos </dev/tty && start_col=$__COL__ && [[ $__COL__ -gt 1 ]] && printf "%$((COLUMNS-__COL__+3))s" ' '$'\r' >&2
-
     max_rows=$NSH_MENU_HEIGHT
     avail_rows=$((LINES-__ROW__+1))
+    can_select_all() { return 0; }
 
     while [[ $# -gt 0 ]]; do
         if [[ $1 == --color-func ]]; then
@@ -287,7 +290,14 @@ menu() {
             initial=$2
             shift
         elif [[ $1 == --select ]]; then
-            can_select=1
+            can_select=can_select_all
+        elif [[ $1 == --can-select ]]; then
+            if [[ $(type -t "$2") == function ]]; then
+                can_select="$2"
+            else
+                eval "TEMPSELFUNC() { $2; }" >&2
+            fi
+            shift
         elif [[ $1 == --marker-func ]]; then
             marker_func="$2"
             shift
@@ -327,10 +337,6 @@ menu() {
             done
         fi
     fi
-
-    hide_cursor >&2
-    disable_echo >&2 </dev/tty
-    disable_line_wrapping >&2
 
     [[ $max_rows == *% ]] && max_rows=$((LINES*${max_rows%?}/100))
     if [[ $max_rows -lt $avail_rows || # when we have plenty of empty rows below the cursor
@@ -580,7 +586,7 @@ menu() {
                     fi
                     ;;
                 ' ')
-                    if [[ $can_select -ne 0 ]]; then
+                    if [[ -n "$can_select" ]] && "$can_select" $idx "${list[$idx]}"; then
                         idx=$(((y+irow)+(x+icol)*rows))
                         if [[ -z "${selected[$idx]}" ]]; then
                             selected[$idx]="${list[$idx]}"
@@ -1339,7 +1345,7 @@ read_command() {
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
                         cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sed "s@^$HOME/@~/@" | sort --ignore-case --version-sort)"
                         if [[ "$cand" == *$'\n'* ]]; then
-                            IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --select --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"' --key $'\n' 'echo "////done////$1"')
+                            IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --can-select select_file --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"' --key $'\n' 'echo "////done////$1"')
                             echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
                         fi
                         if [[ ${#cand[@]} -le 1 ]]; then
@@ -1515,6 +1521,9 @@ nsh() {
             fi
         fi
     }
+    select_file() {
+        [[ "$2" == '..' || "$2" == '../' ]] && return 1 || return 0
+    }
     nsheval() {
         [[ $# -gt 0 ]] && command="$@"
         [[ "$command" == '~' || "$command" == '~/'* ]] && command="$HOME/${commnad#?}"
@@ -1591,7 +1600,7 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --select --key $'\t' 'print_selected force' --key o 'nsh_open $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key $'\07' 'echo "////git////"' --key - 'echo "////back////"')
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --can-select select_file --key $'\t' 'print_selected force' --key o 'nsh_open $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key $'\07' 'echo "////git////"' --key - 'echo "////back////"')
                 [[ ${#ret[@]} -eq 0 ]] && break
                 if [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
                     if [[ "${ret[0]}" == '////dotglob////' ]]; then
