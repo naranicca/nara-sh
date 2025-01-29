@@ -1259,20 +1259,6 @@ read_command() {
     local pre post cand word chunk
     local iword ichunk
     local KEY
-    shopt -s nocaseglob
-    update_dotglob() 
-    {
-        if [[ $NSH_SHOW_HIDDEN_FILES -ne 0 ]]; then
-            shopt -s dotglob
-        else
-            shopt -u dotglob
-        fi
-    }
-    toggle_dotglob() {
-        [[ $NSH_SHOW_HIDDEN_FILES -ne 0 ]] && NSH_SHOW_HIDDEN_FILES=0 || NSH_SHOW_HIDDEN_FILES=1
-        update_dotglob
-    }
-    update_dotglob
 
     [[ $1 == --prefix ]] && prefix="$2" && shift && shift && echo -ne "\r\e[0m$prefix" >&2
     [[ $1 == --cmd ]] && cmd="$2" && cur=${#cmd} && shift && shift && echo -n "$cmd" >&2
@@ -1393,7 +1379,7 @@ read_command() {
                 ;;
             $'\e[A') # up
                 if [[ ${#history[@]} -gt 0 ]]; then
-                    echo -ne "${pre//?/\\b}\r$(nsh_print_prompt)\e[J" >&2
+                    echo -ne "${pre//?/\\b}\r$prefix\e[J" >&2
                     cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
                     [[ "$cmd" == ////////* ]] && cmd="${cmd:8:$((${#cmd}-8))}" && NEXT_KEY=$'\n'
                     cur=${#cmd}
@@ -1429,6 +1415,8 @@ read_command() {
                 echo -ne "\e[$((${#prefix}+${#cmd}))D$prefix$cmd" >&2
                 cur=${#cmd}
                 ;;
+            $'\e'*)
+                ;;
             *)
                 cmd="$pre$KEY$post"
                 cur=$((cur+1))
@@ -1440,7 +1428,6 @@ read_command() {
                 ;;
         esac
     done
-    shopt -u nocaseglob
     printf -v "${1:-cmd}" "%s" "$cmd"
 }
 
@@ -1580,6 +1567,25 @@ nsh() {
         register_mode=--mv
     }
 
+    shopt -s nocaseglob
+    update_dotglob() 
+    {
+        if [[ $NSH_SHOW_HIDDEN_FILES -ne 0 ]]; then
+            shopt -s dotglob
+        else
+            shopt -u dotglob
+        fi
+    }
+    toggle_dotglob() {
+        [[ $NSH_SHOW_HIDDEN_FILES -ne 0 ]] && NSH_SHOW_HIDDEN_FILES=0 || NSH_SHOW_HIDDEN_FILES=1
+        update_dotglob
+    }
+    update_dotglob
+    draw_titlebar() {
+        local prefix="\e[0;32;48;5;235m$(eval "$NSH_PROMPT_PREFIX" 2>/dev/null || echo "$NSH_PROMPT_PREFIX")"
+        echo -e "\r$prefix\e[0;30;48;5;248m $(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
+    }
+
     while true; do
         read_command --prefix "$(nsh_print_prompt)" --cmd "$command" command
 
@@ -1590,7 +1596,7 @@ nsh() {
             while true; do
                 IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
                 [[ -n $__GIT_STAT__ ]] && __GIT_STAT__=$' \e[30;'"$((git_color+10))m($__GIT_STAT__)"$'\e[0m'
-                echo -e "\r\e[0;30;48;5;248m$(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
+                draw_titlebar
                 dirs=() files=()
                 [[ "$(pwd)" != / ]] && dirs+=("../")
                 while IFS= read line; do
@@ -1634,7 +1640,7 @@ nsh() {
                             unset ret[0]
                             echo -e "\e[A\e[0;30;46m\e[KDelete ${#ret[@]} file(s)? (yd/n)\e[0m " >&2
                             get_key KEY
-                            echo -e "\e[A\r\e[0;30;48;5;248m$(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
+                            draw_titlebar
                             [[ yYd == *$KEY* ]] && trash "${ret[@]}"
                         elif [[ "${ret[0]}" == '////rename////' ]]; then
                             echo -n "$NSH_PROMPT rename: "
