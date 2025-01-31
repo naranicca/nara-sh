@@ -10,6 +10,9 @@ NSH_SHOW_HIDDEN_FILES=0
 NSH_PROMPT_PREFIX='echo nsh' # this could be a string, a variable, or even a function, e.g. date
 NSH_PROMPT=$'\e[31m>\e[33m>\e[32m>\e[0m'
 
+# default editor
+NSH_DEFAULT_EDITOR=vi
+
 # colors
 NSH_COLOR_TXT=$'\e[37m'
 NSH_COLOR_CMD=$'\e[32m'
@@ -264,7 +267,8 @@ menu() {
     local color_func marker_func initial=0
     local return_key=() return_fn=() keys
     local start_col avail_rows
-    local can_select= show_footer=1
+    local can_select=
+    local show_footer=1
     local search
 
     hide_cursor >&2
@@ -915,7 +919,7 @@ git() {
                 done <<< "${__GIT_CHANGES__//;/$'\n'}"
                 file="$(menu "${files[@]}" --color-func put_filecolor --marker-func git_marker)"
                 [[ -z "$file" ]] && skip_resolve=1 && break
-                nsh_open "$file"
+                $NSH_DEFAULT_EDITOR "$file"
                 if [[ $(grep -c '^<\+ HEAD' "$file" 2>/dev/null) -eq 0 ]]; then
                     echo -n "$NSH_PROMPT $file was resolved. Stage the file? (y/n) "
                     get_key KEY; echo "$KEY"
@@ -1010,7 +1014,7 @@ git() {
                     read_string line
                     [[ -n "$line" ]] && run checkout -b "$line"
                 elif [[ -n "$branch" ]]; then
-                    line="$(menu checkout merge delete --color-func paint_cyan --no-footer)"
+                    line="$(menu Checkout Merge Delete --color-func paint_cyan --no-footer)"
                     if [[ "$line" == checkout ]]; then
                         run checkout "${branch#origin\/}"
                     elif [[ "$line" == merge ]]; then
@@ -1455,6 +1459,7 @@ enable_line_wrapping
 # main loop
 ############################################################################
 nsh() {
+    local mode pwd
     local history=() history_sizse=0
     local command ret
     local regsiter register_mode
@@ -1582,16 +1587,18 @@ nsh() {
     }
     update_dotglob
     draw_titlebar() {
-        local prefix="\e[0;32;48;5;235m$(eval "$NSH_PROMPT_PREFIX" 2>/dev/null || echo "$NSH_PROMPT_PREFIX")"
+        local prefix
+        [[ -z $mode ]] && prefix="\e[0;32;48;5;235m$(eval "$NSH_PROMPT_PREFIX" 2>/dev/null || echo "$NSH_PROMPT_PREFIX")" || prefix="\e[0;30;45mSelect"
         echo -e "\r$prefix\e[0;30;48;5;248m $(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
     }
 
+    mode=
     while true; do
         read_command --prefix "$(nsh_print_prompt)" --cmd "$command" command
 
         if [[ "$command" == $'\t' ]]; then
             # explore
-            local line dirs files ret
+            local line dirs files name path ret
             local git_color
             while true; do
                 IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
@@ -1606,14 +1613,53 @@ nsh() {
                         files+=("$line")
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --can-select select_file --key $'\t' 'print_selected force' --key o 'nsh_open $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key $'\07' 'echo "////git////"' --key - 'echo "////back////"')
-                [[ ${#ret[@]} -eq 0 ]] && break
-                if [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
+                local extra_params=()
+                if [[ $mode != add ]]; then
+                    extra_params+=(--key a 'echo ////add////' --can-select select_file --key $'\07' 'echo "////git////"')
+                fi
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////open////; print_selected force' --key o 'nsh_open $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' "${extra_params[@]}")
+                if [[ ${#ret[@]} -eq 0 ]]; then
+                    [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
+                    mode=
+                    break
+                elif [[ ${#ret[@]} -gt 1 || "${ret[0]}" == '////'* ]]; then
                     if [[ "${ret[0]}" == '////dotglob////' ]]; then
                         toggle_dotglob
                         ret=
                     else
-                        if [[ "${ret[0]}" == '////yank////' ]]; then
+                        if [[ "${ret[0]}" == '////open////' ]]; then
+                            unset ret[0]
+                            if [[ $mode == add ]]; then
+                                mode=
+                                path="$(pwd)/${ret[1]%/}"
+                                cd "$pwd"
+                                echo -e "\e[A\e[A\e[0m\r$(nsh_print_prompt) ln -s $path ${path##*/}"
+                                command ln -s "$path" "${path##*/}"
+                            elif [[ ${#ret[@]} -eq 1 ]]; then
+                                if [[ -d "${ret[1]}" ]]; then
+                                    cd "${ret[1]}"
+                                    break
+                                else
+                                    ret="${ret[1]}"
+                                    local op="$(menu "Edit $ret" "Run $ret" --no-footer)"
+                                    if [[ $op == Edit* ]]; then
+                                        $NSH_DEFAULT_EDITOR "$ret"
+                                    elif [[ $op == Run* ]]; then
+                                        if [[ $ret == *.py ]]; then
+                                            ret="python $ret"
+                                        elif [[ -x "$ret" ]]; then
+                                            ret="./$ret"
+                                        else
+                                            ret="$ret"
+                                        fi
+                                        break
+                                    fi
+                                fi
+                            else
+                                ret="$(printf '"%s" ' "${ret[@]}")"
+                                break
+                            fi
+                        elif [[ "${ret[0]}" == '////yank////' ]]; then
                             if [[ ${#ret[@]} -gt 1 ]]; then
                                 local d="$(pwd)" && [[ $d == / ]] && d=
                                 for ((i=1; i<${#ret[@]}; i++)); do
@@ -1642,6 +1688,26 @@ nsh() {
                             get_key KEY
                             draw_titlebar
                             [[ yYd == *$KEY* ]] && trash "${ret[@]}"
+                        elif [[ "${ret[0]}" == '////add////' ]]; then
+                            echo "$NSH_PROMPT Add:"
+                            line=(Directory File) && [[ $mode != add ]] && line+=('Symbolic Link')
+                            ret="$(menu "${line[@]}" --key d 'echo Directory' --key f 'echo File' --no-footer)"
+                            if [[ $ret == Directory ]]; then
+                                echo -ne "\e[A$NSH_PROMPT Add a directory: "
+                                read_string name
+                                [[ -n "$name" ]] && mkdir -p "$name"
+                            elif [[ $ret == File ]]; then
+                                echo -ne "\e[A$NSH_PROMPT Add a file: "
+                                read_string name
+                                [[ -n "$name" ]] && touch "$name"
+                            elif [[ $ret == Symbolic\ Link ]]; then
+                                echo -e "\e[A\e[A$NSH_PROMPT Adding a symbolic link of: \e[J"
+                                echo
+                                mode=add
+                                pwd="$(pwd)"
+                            else
+                                echo -ne '\e[A'
+                            fi
                         elif [[ "${ret[0]}" == '////rename////' ]]; then
                             echo -n "$NSH_PROMPT rename: "
                             read_string --initial "${ret[1]}" line
