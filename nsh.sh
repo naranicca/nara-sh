@@ -43,13 +43,8 @@ nsh_print_prompt() {
     fi
 }
 
-nsh_open() {
-    vi "$1"
-}
-
 NSH_DEFAULT_CONFIG="$NSH_DEFAULT_CONFIG"$'\n'"# functions"
 NSH_DEFAULT_CONFIG="$NSH_DEFAULT_CONFIG"$'\n'"$(type nsh_print_prompt | sed 1d)"
-NSH_DEFAULT_CONFIG="$NSH_DEFAULT_CONFIG"$'\n'"$(type nsh_open | sed 1d)"
 
 show_logo() {
     disable_line_wrapping
@@ -891,7 +886,10 @@ git() {
         echo -e "\r$(nsh_print_prompt)\e[0m\e[Kgit $@"
         eval command git "$@"
     }
-    if [[ $# -gt 0 ]]; then
+    if [[ $1 == \-\- ]]; then
+        shift
+        files="$(printf '\"%s\" ' "$@")"
+    elif [[ $# -gt 0 ]]; then
         command git "$@"
         echo -e "\r$(nsh_print_prompt)git"
         git
@@ -1479,7 +1477,7 @@ nsh() {
         elif [[ $1 == default ]]; then
             echo "$NSH_DEFAULT_CONFIG" > $config_file
         else
-            nsh_open "$config_file"
+            $NSH_DEFAULT_EDITOR "$config_file"
         fi
         source "$config_file"
     }
@@ -1617,7 +1615,7 @@ nsh() {
                 if [[ $mode != add ]]; then
                     extra_params+=(--key a 'echo ////add////' --can-select select_file --key $'\07' 'echo "////git////"')
                 fi
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////open////; print_selected force' --key o 'nsh_open $1 >&2...' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' "${extra_params[@]}")
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////open////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' "${extra_params[@]}")
                 if [[ ${#ret[@]} -eq 0 ]]; then
                     [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
                     mode=
@@ -1640,19 +1638,30 @@ nsh() {
                                     cd "${ret[1]}"
                                     break
                                 else
-                                    ret="${ret[1]}"
-                                    local op="$(menu "Edit $ret" "Run $ret" --no-footer)"
+                                    name="${ret[1]}"
+                                    line=("Edit $name" "Run $name")
+                                    [[ $__GIT_CHANGES__ =~ \;[!]*"$name"\; ]] && line+=('Git')
+                                    [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=('Git add')
+                                    local op="$(menu "${line[@]}" --no-footer)"
                                     if [[ $op == Edit* ]]; then
-                                        $NSH_DEFAULT_EDITOR "$ret"
+                                        $NSH_DEFAULT_EDITOR "$name"
                                     elif [[ $op == Run* ]]; then
-                                        if [[ $ret == *.py ]]; then
-                                            ret="python $ret"
-                                        elif [[ -x "$ret" ]]; then
-                                            ret="./$ret"
+                                        if [[ $name == *.py ]]; then
+                                            ret="python $name"
+                                        elif [[ -x "$name" ]]; then
+                                            ret="./$name"
                                         else
-                                            ret="$ret"
+                                            ret="$name"
                                         fi
                                         break
+                                    elif [[ $op == Git ]]; then
+                                        echo -ne "\e[A\r$(nsh_print_prompt)git\e[J"
+                                        git -- "$name"
+                                    elif [[ $op == Git\ add ]]; then
+                                        echo -ne "\e[A\r$(nsh_print_prompt)git add $fname\e[J"
+                                        git add "$name"
+                                    else
+                                        ret=
                                     fi
                                 fi
                             else
