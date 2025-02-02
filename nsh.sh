@@ -1596,8 +1596,9 @@ nsh() {
 
         if [[ "$command" == $'\t' ]]; then
             # explore
-            local line dirs files name path ret
+            local line dirs files name path ret op
             local git_color
+            local i
             while true; do
                 IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
                 [[ -n $__GIT_STAT__ ]] && __GIT_STAT__=$' \e[30;'"$((git_color+10))m($__GIT_STAT__)"$'\e[0m'
@@ -1612,8 +1613,10 @@ nsh() {
                     fi
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
                 local extra_params=()
-                if [[ $mode != add ]]; then
-                    extra_params+=(--key a 'echo ////add////' --can-select select_file --key $'\07' 'echo "////git////"')
+                if [[ -z $mode ]]; then
+                    extra_params+=(--key a 'echo ////add////' --key P 'echo ////bring////' --can-select select_file --key $'\07' 'echo "////git////"')
+                elif [[ $mode == bring ]]; then
+                    extra_params+=(--can-select select_file)
                 fi
                 IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////open////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' "${extra_params[@]}")
                 if [[ ${#ret[@]} -eq 0 ]]; then
@@ -1633,6 +1636,32 @@ nsh() {
                                 cd "$pwd"
                                 echo -e "\e[A\e[A\e[0m\r$(nsh_print_prompt) ln -s $path ${path##*/}"
                                 command ln -s "$path" "${path##*/}"
+                            elif [[ $mode == bring ]]; then
+                                mode=
+                                if [[ ${#ret[@]} -gt 1 ]]; then
+                                    echo -e "\e[A\e[A\r$NSH_PROMPT Bring: ${ret[1]}...(${#ret[@]})\e[J"
+                                else
+                                    echo -e "\e[A\e[A\r$NSH_PROMPT Bring: ${ret[1]}\e[J"
+                                fi
+                                path="$(pwd)" && cd "$pwd"
+                                op="$(menu Copy Move 'Symbolic Link' --no-footer)"
+                                if [[ -n "$op" ]]; then
+                                    echo -ne '\e[A'
+                                    for ((i=1; i<=${#ret[@]}; i++)); do
+                                        name="$path/${ret[$i]%/}"
+                                        if [[ $op == Copy ]]; then
+                                            echo "$NSH_PROMPT cp $name ."
+                                            cp "$name" .
+                                        elif [[ $op == Move ]]; then
+                                            echo "$NSH_PROMPT mv $name ."
+                                            mv "$name" .
+                                        elif [[ $op == 'Symbolic Link' ]]; then
+                                            echo "$NSH_PROMPT ln -s $name ${name##*/}"
+                                            ln -s "$name" "${name##*/}"
+                                        fi
+                                    done
+                                    echo
+                                fi
                             elif [[ ${#ret[@]} -eq 1 ]]; then
                                 if [[ -d "${ret[1]}" ]]; then
                                     cd "${ret[1]}"
@@ -1693,7 +1722,7 @@ nsh() {
                             fi
                         elif [[ "${ret[0]}" == '////delete////' ]]; then
                             unset ret[0]
-                            echo -e "\e[A\e[0;30;46m\e[KDelete ${#ret[@]} file(s)? (yd/n)\e[0m " >&2
+                            echo -ne "\e[A\e[0;30;46m\e[KDelete ${#ret[@]} file(s)? (yd/n)\e[0m " >&2
                             get_key KEY
                             draw_titlebar
                             [[ yYd == *$KEY* ]] && trash "${ret[@]}"
@@ -1717,6 +1746,10 @@ nsh() {
                             else
                                 echo -ne '\e[A'
                             fi
+                        elif [[ "${ret[0]}" == '////bring////' ]]; then
+                            echo -e "$NSH_PROMPT Bring:\n"
+                            mode=bring
+                            pwd="$(pwd)"
                         elif [[ "${ret[0]}" == '////rename////' ]]; then
                             echo -n "$NSH_PROMPT rename: "
                             read_string --initial "${ret[1]}" line
