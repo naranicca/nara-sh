@@ -268,13 +268,13 @@ menu() {
 
     hide_cursor >&2
     disable_echo >&2 </dev/tty
-    disable_line_wrapping >&2
     get_terminal_size </dev/tty
     get_cursor_pos </dev/tty && start_col=$__COL__ && [[ $__COL__ -gt 1 ]] && printf "%$((COLUMNS-__COL__+3))s" ' '$'\r' >&2
     max_rows=$NSH_MENU_HEIGHT
     avail_rows=$((LINES-__ROW__+1))
     can_select_all() { return 0; }
 
+    disable_line_wrapping >&2
     while [[ $# -gt 0 ]]; do
         if [[ $1 == --color-func ]]; then
             color_func="$2"
@@ -821,6 +821,7 @@ disk() {
 git_status()  {
     local line str= color=0
     local filenames=;
+    local staged=0
     while read line; do
         case "$line" in
             *not\ a\ git*|*Not\ a\ git*|*Untracked*)
@@ -834,11 +835,26 @@ git_status()  {
                 str="rebase-->${line##* }"
                 color=31
                 ;;
+            *use*restore\ --staged*to\ unstage*)
+                staged=1
+                ;;
+            *Changes\ not\ staged*)
+                staged=0
+                ;;
             *modified:*|*deleted:*|*new\ file:*|*renamed:*)
                 color=91
                 if [[ "$line" == *modified:* ]]; then
                     fname="$(echo $line | sed 's/.*modified:[ ]*//')"
-                    [[ "$line" == *both\ modified:* ]] && fname="!!$fname"
+                    if [[ "$line" == *both\ modified:* ]]; then
+                        fname="!!$fname"
+                    elif [[ "$line" == *modified:* ]]; then
+                        if [[ $staged -ne 0 ]]; then
+                            fname="++$fname"
+                        elif [[ "$filenames;" == *\;++$fname\;* ]]; then
+                            filenames="$filenames;"
+                            filenames="${filenames//\;++$fname\;/\;}"
+                        fi
+                    fi
                     filenames="$filenames;${fname%%/*}"
                 fi
                 #break
@@ -936,7 +952,7 @@ git() {
             local dst=
             if [[ -z "$files" ]]; then
                 if [[ -n $__GIT_CHANGES__ ]]; then
-                    IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;[\?\!][\?\!]/\;}"
+                    IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;[\?\!\+][\?\!\+]/\;}"
                     IFS=$'\n' read -d '' -a files < <(menu "${files[@]}" --select --color-func put_filecolor --marker-func git_marker)
                 fi
                 if [[ ${#files[@]} -gt 0 ]]; then
@@ -970,32 +986,40 @@ git() {
                 run add "$files"
             elif [[ "$op" == log ]]; then
                 p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always --graph'
-                line="$(eval "command git log $p --decorate --oneline $files" | menu -c 1 | strip_escape)"
-                if [[ -n "$line" ]]; then
-                    hash="${line%% *}"
-                    hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
-                    command git log --color=always -n 1 --stat "$hash"
-                    op="$(menu -c 1 'Checkout this commit' 'Roll back to this commit' 'Roll back but keep the changes' 'Edit commit' --color-func paint_cyan --no-footer)"
-                    if [[ "$op" == Checkout* ]]; then
-                        run checkout "$hash"
-                    elif [[ "$op" == Roll\ back\ to* ]]; then
-                        echo -n "$NSH_PROMPT You will lose the commits. Continue? (y/n) "
-                        get_key KEY; echo "$KEY"
-                        [[ yY == *$KEY* ]] && run reset --hard "$hash"
-                    elif [[ "$op" == Roll\ back\ * ]]; then
-                        echo -n "$NSH_PROMPT Roll back to this commit? You can cancel rollback by run "git restore FILE" and git pull (y/n) "
-                        get_key KEY; echo "$KEY"
-                        [[ yY == *$KEY* ]] && run reset --soft $hash && run restore --staged .
-                    elif [[ "$op" == Edit* ]]; then
-                        hash="$(command git log --oneline | grep -n "$hash")" && hash="${hash%%:*}"
-                        run rebase -i "@~$hash"
+                while true; do
+                    line="$(eval "command git log $p --decorate --oneline $files" | menu -c 1 | strip_escape)"
+                    if [[ -n "$line" ]]; then
+                        hash="${line%% *}"
+                        hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
+                        command git log --color=always -n 1 --stat "$hash"
+                        op="$(menu -c 1 'Diff' 'Checkout this commit' 'Roll back to this commit' 'Roll back but keep the changes' 'Edit commit' --color-func paint_cyan --no-footer)"
+                        if [[ "$op" == Diff ]]; then
+                            run show "$hash"
+                        elif [[ "$op" == Checkout* ]]; then
+                            run checkout "$hash"
+                            break
+                        elif [[ "$op" == Roll\ back\ to* ]]; then
+                            echo -n "$NSH_PROMPT You will lose the commits. Continue? (y/n) "
+                            get_key KEY; echo "$KEY"
+                            if [[ yY == *$KEY* ]]; then
+                                run reset --hard "$hash"
+                                break
+                            fi
+                        elif [[ "$op" == Roll\ back\ * ]]; then
+                            echo -n "$NSH_PROMPT Roll back to this commit? You can cancel rollback by run "git restore FILE" and git pull (y/n) "
+                            get_key KEY; echo "$KEY"
+                            if [[ yY == *$KEY* ]]; then
+                                run reset --soft $hash && run restore --staged .
+                                break
+                            fi
+                        elif [[ "$op" == Edit* ]]; then
+                            hash="$(command git log --oneline | grep -n "$hash")" && hash="${hash%%:*}"
+                            run rebase -i "@~$hash"
+                        fi
                     else
-                        op=log
+                        break
                     fi
-                    continue
-                else
-                    op=
-                fi
+                done
             elif [[ "$op" == branch ]]; then
                 git_branch() {
                     while IFS=$'\n' read line; do
@@ -1013,17 +1037,17 @@ git() {
                     [[ -n "$line" ]] && run checkout -b "$line"
                 elif [[ -n "$branch" ]]; then
                     line="$(menu Checkout Merge Delete --color-func paint_cyan --no-footer)"
-                    if [[ "$line" == checkout ]]; then
+                    if [[ "$line" == Checkout ]]; then
                         run checkout "${branch#origin\/}"
-                    elif [[ "$line" == merge ]]; then
+                    elif [[ "$line" == Merge ]]; then
                         run merge "${branch#origin\/}"
-                    elif [[ "$line" == delete ]]; then
+                    elif [[ "$line" == Delete ]]; then
                         if [[ "$branch" == origin\/* ]]; then
                             echo -ne "$NSH_PROMPT \e[31m${branch#*/} branch will be deleted from repository. Continue? (y/n)\e[0m "
                             get_key KEY; echo "$KEY"
                             [[ yY == *$KEY* ]] && run push origin --delete "${branch#*/}"
                         else
-                            echo -n "$NSH_PROMPT local branch ${branch#*/} will be deleted. Continue? (y/n) "
+                            echo -n "$NSH_PROMPT ${branch#*/} will be deleted from the disk. Continue? (y/n) "
                             get_key KEY; echo "$KEY"
                             [[ yY == *$KEY* ]] && run branch -D "$branch"
                         fi
@@ -1506,6 +1530,8 @@ nsh() {
                 echo -e '\e[37;41m!'
             elif [[ "$__GIT_CHANGES__;" == *";??$name;"* ]]; then
                 echo -e '\e[30;48;5;248m?'
+            elif [[ "$__GIT_CHANGES__;" == *";++$name;"* ]]; then
+                echo -e '\e[0;42m '
             else
                 echo \ 
             fi
@@ -1668,7 +1694,7 @@ nsh() {
                                     break
                                 else
                                     name="${ret[1]}"
-                                    line=("Edit $name" "Run $name")
+                                    line=("Run $name" "Edit $name")
                                     [[ $__GIT_CHANGES__ =~ \;[!]*"$name"\; ]] && line+=('Git')
                                     [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=('Git add')
                                     local op="$(menu "${line[@]}" --no-footer)"
