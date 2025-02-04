@@ -949,14 +949,29 @@ git() {
                 command git commit
             fi
         else
+            local branch=$'[\e[4m'"$__GIT_STAT__"$'\e[24m]'
             local dst=
+            local cnt
+            op=
             if [[ -z "$files" ]]; then
                 if [[ -n $__GIT_CHANGES__ ]]; then
                     IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;[\?\!\+][\?\!\+]/\;}"
-                    IFS=$'\n' read -d '' -a files < <(menu "${files[@]}" --select --color-func put_filecolor --marker-func git_marker)
+                    IFS=$'\n' read -d '' -a files < <(menu "$branch" "${files[@]}" --select --color-func put_filecolor --marker-func git_marker)
                 fi
-                if [[ ${#files[@]} -gt 0 ]]; then
-                    files="$(printf '\"%s\" ' "${files[@]}")"
+                cnt=${#files[@]}
+                if [[ $cnt -gt 0 ]]; then
+                    for ((i=0; i<$cnt; i++)); do
+                        if [[ "${files[$i]}" == "$branch" ]]; then
+                            if [[ $cnt -eq 1 ]]; then
+                                files=()
+                                op=branch
+                                break
+                            else
+                                unset files[$i]
+                            fi
+                        fi
+                    done
+                    [[ ${#files[@]} -gt 0 ]] && files="$(printf '\"%s\" ' "${files[@]}")"
                 else
                     files=
                 fi
@@ -968,7 +983,7 @@ git() {
                 op="${op%% *}"
             else
                 files=.
-                op="$(menu diff pull commit push revert log branch --color-func paint_cyan --no-footer)"
+                [[ -z "$op" ]] && op="$(menu diff pull commit push revert log branch --color-func paint_cyan --no-footer)"
                 [[ -z "$op" ]] && return
             fi
 
@@ -1030,29 +1045,39 @@ git() {
                         command git branch -r 2>/dev/null | sed 's/^[ *]*//' | grep "^$remote/" | sed -n '/ -> /!p'
                     done
                 }
-                branch="$((echo '+ New branch'; git_branch) | menu -c 1)"
-                if [[ "$branch" == '+ New branch' ]]; then
-                    echo -n "$NSH_PROMPT New branch name: "
-                    read_string line
-                    [[ -n "$line" ]] && run checkout -b "$line"
-                elif [[ -n "$branch" ]]; then
-                    line="$(menu Checkout Merge Delete --color-func paint_cyan --no-footer)"
-                    if [[ "$line" == Checkout ]]; then
-                        run checkout "${branch#origin\/}"
-                    elif [[ "$line" == Merge ]]; then
-                        run merge "${branch#origin\/}"
-                    elif [[ "$line" == Delete ]]; then
-                        if [[ "$branch" == origin\/* ]]; then
-                            echo -ne "$NSH_PROMPT \e[31m${branch#*/} branch will be deleted from repository. Continue? (y/n)\e[0m "
-                            get_key KEY; echo "$KEY"
-                            [[ yY == *$KEY* ]] && run push origin --delete "${branch#*/}"
-                        else
-                            echo -n "$NSH_PROMPT ${branch#*/} will be deleted from the disk. Continue? (y/n) "
-                            get_key KEY; echo "$KEY"
-                            [[ yY == *$KEY* ]] && run branch -D "$branch"
+                while true; do
+                    branch="$((echo '+ New branch'; git_branch) | menu -c 1 --color-func paint_cyan)"
+                    if [[ "$branch" == '+ New branch' ]]; then
+                        echo -n "$NSH_PROMPT New branch name: "
+                        read_string line
+                        if [[ -n "$line" ]]; then
+                            run checkout -b "$line"
+                            break
                         fi
+                        echo -ne '\e[A\r\e[J'
+                    elif [[ -n "$branch" ]]; then
+                        line="$(menu Checkout Merge Delete --color-func paint_cyan --no-footer)"
+                        if [[ "$line" == Checkout ]]; then
+                            run checkout "${branch#origin\/}"
+                            break
+                        elif [[ "$line" == Merge ]]; then
+                            run merge "${branch#origin\/}"
+                            break
+                        elif [[ "$line" == Delete ]]; then
+                            if [[ "$branch" == origin\/* ]]; then
+                                echo -ne "$NSH_PROMPT \e[31m${branch#*/} branch will be deleted from repository. Continue? (y/n)\e[0m "
+                                get_key KEY; echo "$KEY"
+                                [[ yY == *$KEY* ]] && run push origin --delete "${branch#*/}"
+                            else
+                                echo -n "$NSH_PROMPT ${branch#*/} will be deleted from the disk. Continue? (y/n) "
+                                get_key KEY; echo "$KEY"
+                                [[ yY == *$KEY* ]] && run branch -D "$branch"
+                            fi
+                        fi
+                    else
+                        break
                     fi
-                fi
+                done
             else
                 run $op "$files" 
             fi
