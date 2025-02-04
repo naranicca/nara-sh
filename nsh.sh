@@ -301,7 +301,8 @@ menu() {
             marker_func="$2"
             shift
         elif [[ $1 == --key ]]; then
-            shift && return_key+=("$1")
+            shift && item="$1" && [[ $item == $'\e' ]] && item=$'\e '
+            return_key+=("$item")
             shift && return_fn+=("$1") # if fn ends with '...', menu will not end after running the function
         elif [[ $1 == --no-footer ]]; then
             show_footer=0
@@ -534,12 +535,13 @@ menu() {
     while true; do
         KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY </dev/tty
         local found=0
-        if [[ "$keys" == *$KEY* ]]; then
+        local key_to_match="$KEY" && [[ $KEY == $'\e' ]] && key_to_match=$'\e '
+        if [[ "$keys" == *$key_to_match* ]]; then
             idx=$(((y+irow)+(x+icol)*rows))
             item="${list[$idx]}"
             local quit=yes
             for ((i=0; i<${#return_key[@]}; i++)); do
-                if [[ "${return_key[$i]}" == *"$KEY"* ]]; then
+                if [[ "${return_key[$i]}" == *"$key_to_match"* ]]; then
                     if [[ $(type -t "${return_fn[$i]}") == function ]]; then
                         "${return_fn[$i]}" "$item"
                     else
@@ -753,6 +755,53 @@ get_hsize() {
     fi
 }
 
+task_manager() {
+    local KEY cpu mem cpu_activ_prev cpu_activ_cur cpu_total_prev cpu_total_cur
+    local user nice system idle iowait irq softirq steal guest
+    local line filesystem disk disk_size disk_used disk_avail
+    local str bs i=10
+    while true; do
+        # cpu usage
+        if read __cpu user nice system idle iowait irq softirq steal guest 2>/dev/null < /proc/stat; then
+            if [[ -z $cpu_activ_prev ]]; then
+                cpu_activ_prev=$((user+system+nice+softirq+steal))
+                cpu_total_prev=$((user+system+nice+softirq+steal+idle+iowait))
+                cpu=-
+                sleep 1s
+                continue
+            else
+                cpu_activ_cur=$((user+system+nice+softirq+steal))
+                cpu_total_cur=$((user+system+nice+softirq+steal+idle+iowait))
+                cpu=$((((cpu_activ_cur-cpu_activ_prev)*1000/(cpu_total_cur-cpu_total_prev)+5)/10))
+                cpu_activ_prev=$cpu_activ_cur
+                cpu_total_prev=$cpu_total_cur
+            fi
+        else
+            cpu=-
+        fi
+        # memory usage
+        mem=(`free -m 2>/dev/null | grep '^Mem:'`)
+        if [ -z "$__mem" ]; then
+            mem=-
+        else
+            mem=$(((${__mem[2]}*1000/${__mem[1]}+5)/10))
+        fi
+        # disk usage
+        if [[ $i -eq 10 ]]; then
+            line="$(df -h . 2>/dev/null | tail -n 1)" && line="${line%%%*}"
+            IFS=\  read filesystem disk_size disk_used disk_avail disk <<< "$line"
+            i=0
+        fi
+        i=$((i+1))
+
+        bs="$(echo -ne "${str//?/\\b}")"
+        str="$(printf '\rCPU: %3s%% | MEM: %3s%% | DISK: %s of %s used (%s%%)' $cpu $mem "$disk_used" "$disk_size" "$disk")"
+        echo -ne "$bs\r$str"
+        get_key -t 2 KEY
+        [[ -n $KEY ]] && break
+    done
+}
+
 disk() {
     disable_line_wrapping
     local cur="$PWD"
@@ -949,7 +998,7 @@ git() {
                 command git commit
             fi
         else
-            local branch=$'[\e[4m'"$__GIT_STAT__"$'\e[24m]'
+            local branch=$'\e'"[$git_color;4m[$__GIT_STAT__]"
             local dst=
             local cnt
             op=
@@ -1665,7 +1714,7 @@ nsh() {
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
                 local extra_params=()
                 if [[ -z $mode ]]; then
-                    extra_params+=(--key a 'echo ////add////' --key P 'echo ////bring////' --can-select select_file --key $'\07' 'echo "////git////"')
+                    extra_params+=(--key a 'echo ////add////' --key P 'echo ////bring////' --can-select select_file --key $'\07' 'echo "////git////"' --key $'\e[21~' 'echo "////menu////"')
                 elif [[ $mode == bring ]]; then
                     extra_params+=(--can-select select_file)
                 fi
@@ -1678,6 +1727,19 @@ nsh() {
                     if [[ "${ret[0]}" == '////dotglob////' ]]; then
                         toggle_dotglob
                         ret=
+                    elif [[ "${ret[0]}" == '////menu////' ]]; then
+                        ret="$(menu Git System Config --no-footer)"
+                        case "$ret" in
+                            Git)
+                                git
+                                ;;
+                            System)
+                                task_manager
+                                ;;
+                            Config)
+                                config
+                                ;;
+                        esac
                     else
                         if [[ "${ret[0]}" == '////open////' ]]; then
                             unset ret[0]
