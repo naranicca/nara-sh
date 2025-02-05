@@ -780,11 +780,11 @@ task_manager() {
             cpu=-
         fi
         # memory usage
-        mem=(`free -m 2>/dev/null | grep '^Mem:'`)
-        if [ -z "$__mem" ]; then
+        mem="$(free -m 2>/dev/null | grep '^Mem:')"
+        if [ -z "$mem" ]; then
             mem=-
         else
-            mem=$(((${__mem[2]}*1000/${__mem[1]}+5)/10))
+            mem=$(((${mem[2]}*1000/${mem[1]}+5)/10))
         fi
         # disk usage
         if [[ $i -eq 10 ]]; then
