@@ -261,7 +261,7 @@ menu() {
     local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
     local color_func marker_func initial=0
     local return_key=() return_fn=() keys
-    local start_col avail_rows
+    local avail_rows
     local can_select=
     local show_footer=1
     local search
@@ -269,7 +269,7 @@ menu() {
     hide_cursor >&2
     disable_echo >&2 </dev/tty
     get_terminal_size </dev/tty
-    get_cursor_pos </dev/tty && start_col=$__COL__ && [[ $__COL__ -gt 1 ]] && printf "%$((COLUMNS-__COL__+3))s" ' '$'\r' >&2
+    get_cursor_pos </dev/tty
     max_rows=$NSH_MENU_HEIGHT
     avail_rows=$((LINES-__ROW__+1))
     can_select_all() { return 0; }
@@ -281,6 +281,7 @@ menu() {
             shift
         elif [[ $1 == -r || $1 == --max-rows ]]; then
             max_rows=$2
+            avail_rows=$2
             shift
         elif [[ $1 == -c || $1 == --max-cols ]]; then
             max_cols=$2
@@ -599,17 +600,17 @@ menu() {
                                 draw_line $((rows-1))
                             fi
                         fi
-                        if [[ $idx -lt $((list_size-1)) ]]; then
-                            NEXT_KEY=j
-                        else
-                            # when idx == list_size-1, j key doesn't do anything
-                            [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
-                            draw_line $y
-                            [[ $y -lt $((rows-1)) ]] && echo -ne "\e[$((y+1))A" >&2
-                        fi
+                    fi
+                    if [[ $idx -lt $((list_size-1)) ]]; then
+                        NEXT_KEY=j
+                    else
+                        # when idx == list_size-1, j key doesn't do anything
+                        [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
+                        draw_line $y
+                        [[ $y -lt $((rows-1)) ]] && echo -ne "\e[$((y+1))A" >&2
                     fi
                     ;;
-                $'\n')
+                $'\n'|$'\t')
                     print_selected force
                     break
                     ;;
@@ -681,7 +682,6 @@ menu() {
         fi
     done
 
-    [[ $start_col -gt 1 ]] && echo -ne "\e[A\e[$((start_col-1))C" >&2
     echo -ne '\e[0m\e[J' >&2
     show_cursor >&2
     enable_echo >&2 </dev/tty
@@ -1005,7 +1005,7 @@ git() {
             if [[ -z "$files" ]]; then
                 if [[ -n $__GIT_CHANGES__ ]]; then
                     IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;[\?\!\+][\?\!\+]/\;}"
-                    IFS=$'\n' read -d '' -a files < <(menu "$branch" "${files[@]}" --select --color-func put_filecolor --marker-func git_marker)
+                    IFS=$'\n' read -d '' -a files < <(menu -c 1 "$branch" "${files[@]}" --select --color-func put_filecolor --marker-func git_marker)
                 fi
                 cnt=${#files[@]}
                 if [[ $cnt -gt 0 ]]; then
@@ -1049,7 +1049,7 @@ git() {
             elif [[ "$op" == stage ]]; then
                 run add "$files"
             elif [[ "$op" == log ]]; then
-                p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always --graph'
+                p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always'
                 while true; do
                     line="$(eval "command git log $p --decorate --oneline $files" | menu -c 1 | strip_escape)"
                     if [[ -n "$line" ]]; then
@@ -1365,6 +1365,7 @@ read_command() {
     iword=$cur && [[ "$cmd" == *\ * ]] && iword="${cmd% *} " && iword=${#iword}
     ichunk=$iword
 
+    show_cursor
     echo -ne '\e[J'
     while true; do
         pre="${cmd:0:$cur}"
@@ -1431,8 +1432,9 @@ read_command() {
                         local p='-p' && [[ "$chunk" == */ ]] && p=  # to avoid //
                         cand="$(eval command ls $p -d "${pre:$iword:$((ichunk-iword))}$(fuzzy_word "${chunk:-*}")" 2>/dev/null | sed "s@^$HOME/@~/@" | sort --ignore-case --version-sort)"
                         if [[ "$cand" == *$'\n'* ]]; then
+                            echo >&2
                             IFS=$'\n' read -d '' -a cand < <(echo -e "$cand" | menu --color-func put_filecolor --can-select select_file --key '.' 'echo "%&\$#!@"' --key $'\t' 'echo "$1"' --key $'\n' 'echo "////done////$1"')
-                            echo -ne "${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
+                            echo -ne "\e[A${prefix//?/\\b}${pre//?/\\b}$prefix$pre" >&2
                         fi
                         if [[ ${#cand[@]} -le 1 ]]; then
                             cand="${cand[0]}"
@@ -1686,8 +1688,11 @@ nsh() {
     update_dotglob
     draw_titlebar() {
         local prefix
-        [[ -z $mode ]] && prefix="\e[0;32;48;5;235m$(eval "$NSH_PROMPT_PREFIX" 2>/dev/null || echo "$NSH_PROMPT_PREFIX")" || prefix="\e[0;30;45mSelect"
-        echo -e "\r$prefix\e[0;30;48;5;248m $(dirs)$__GIT_STAT__\e[30;48;5;248m\e[K\e[0m" >&2
+        [[ -n $mode ]] && prefix="\e[0;30;45mSelect"
+        echo -e "\r$prefix$(nsh_print_prompt)\e[J"
+    }
+    paint_cyan() {
+        echo -e '\e[36m'
     }
 
     mode=
@@ -1695,7 +1700,7 @@ nsh() {
         read_command --prefix "$(nsh_print_prompt)" --cmd "$command" command
 
         if [[ "$command" == $'\t' ]]; then
-            # explore
+            # explorer
             local line dirs files name path ret op
             local git_color
             local i
@@ -1714,11 +1719,11 @@ nsh() {
                 done < <(command ls -d * 2>/dev/null | sort --ignore-case --version-sort)
                 local extra_params=()
                 if [[ -z $mode ]]; then
-                    extra_params+=(--key a 'echo ////add////' --key P 'echo ////bring////' --can-select select_file --key $'\07' 'echo "////git////"' --key $'\e[21~' 'echo "////menu////"')
-                elif [[ $mode == bring ]]; then
+                    extra_params+=(--key a 'echo ////add////' --key P 'echo ////fetch////' --can-select select_file --key $'\07' 'echo "////git////"' --key $'\e[21~' 'echo "////menu////"')
+                elif [[ $mode == fetch ]]; then
                     extra_params+=(--can-select select_file)
                 fi
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////open////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force; quit' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' "${extra_params[@]}")
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////open////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' "${extra_params[@]}")
                 if [[ ${#ret[@]} -eq 0 ]]; then
                     [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
                     mode=
@@ -1728,7 +1733,7 @@ nsh() {
                         toggle_dotglob
                         ret=
                     elif [[ "${ret[0]}" == '////menu////' ]]; then
-                        ret="$(menu Git System Config --no-footer)"
+                        ret="$(menu --max-rows 1 Git System Config --color-func paint_cyan --no-footer)"
                         case "$ret" in
                             Git)
                                 git
@@ -1749,15 +1754,15 @@ nsh() {
                                 cd "$pwd"
                                 echo -e "\e[A\e[A\e[0m\r$(nsh_print_prompt) ln -s $path ${path##*/}"
                                 command ln -s "$path" "${path##*/}"
-                            elif [[ $mode == bring ]]; then
+                            elif [[ $mode == fetch ]]; then
                                 mode=
                                 if [[ ${#ret[@]} -gt 1 ]]; then
-                                    echo -e "\e[A\e[A\r$NSH_PROMPT Bring: ${ret[1]}...(${#ret[@]})\e[J"
+                                    echo -e "\e[A\r$NSH_PROMPT Fetch: ${ret[1]}...(${#ret[@]})\e[J"
                                 else
-                                    echo -e "\e[A\e[A\r$NSH_PROMPT Bring: ${ret[1]}\e[J"
+                                    echo -e "\e[A\r$NSH_PROMPT Fetch: ${ret[1]}\e[J"
                                 fi
                                 path="$(pwd)" && cd "$pwd"
-                                op="$(menu Copy Move 'Symbolic Link' --no-footer)"
+                                op="$(menu Copy Move 'Symbolic Link' --color-func paint_cyan --no-footer)"
                                 if [[ -n "$op" ]]; then
                                     echo -ne '\e[A'
                                     for ((i=1; i<=${#ret[@]}; i++)); do
@@ -1784,7 +1789,7 @@ nsh() {
                                     line=("Run $name" "Edit $name")
                                     [[ $__GIT_CHANGES__ =~ \;[!]*"$name"\; ]] && line+=('Git')
                                     [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=('Git add')
-                                    local op="$(menu "${line[@]}" --no-footer)"
+                                    local op="$(menu "${line[@]}" --color-func paint_cyan --no-footer)"
                                     if [[ $op == Edit* ]]; then
                                         $NSH_DEFAULT_EDITOR "$name"
                                     elif [[ $op == Run* ]]; then
@@ -1797,11 +1802,13 @@ nsh() {
                                         fi
                                         break
                                     elif [[ $op == Git ]]; then
-                                        echo -ne "\e[A\r$(nsh_print_prompt)git\e[J"
+                                        echo -e "\e[A\r$(nsh_print_prompt)git\e[J"
                                         git -- "$name"
+                                        echo
                                     elif [[ $op == Git\ add ]]; then
-                                        echo -ne "\e[A\r$(nsh_print_prompt)git add $fname\e[J"
+                                        echo -e "\e[A\r$(nsh_print_prompt)git add $fname\e[J"
                                         git add "$name"
+                                        echo
                                     else
                                         ret=
                                     fi
@@ -1835,14 +1842,15 @@ nsh() {
                             fi
                         elif [[ "${ret[0]}" == '////delete////' ]]; then
                             unset ret[0]
-                            echo -ne "\e[A\e[0;30;46m\e[KDelete ${#ret[@]} file(s)? (yd/n)\e[0m " >&2
+                            line="${#ret[@]} files" && [[ ${#ret[@]} -eq 1 ]] && line="${ret[1]}"
+                            echo -ne "\e[A\e[0;37;41m\e[KDelete $line? (yd/n)\e[0m " >&2
                             get_key KEY
                             draw_titlebar
                             [[ yYd == *$KEY* ]] && trash "${ret[@]}"
                         elif [[ "${ret[0]}" == '////add////' ]]; then
                             echo "$NSH_PROMPT Add:"
                             line=(Directory File) && [[ $mode != add ]] && line+=('Symbolic Link')
-                            ret="$(menu "${line[@]}" --key d 'echo Directory' --key f 'echo File' --no-footer)"
+                            ret="$(menu "${line[@]}" --key d 'echo Directory' --key f 'echo File' --color-func paint_cyan --no-footer)"
                             if [[ $ret == Directory ]]; then
                                 echo -ne "\e[A$NSH_PROMPT Add a directory: "
                                 read_string name
@@ -1859,16 +1867,16 @@ nsh() {
                             else
                                 echo -ne '\e[A'
                             fi
-                        elif [[ "${ret[0]}" == '////bring////' ]]; then
-                            echo -e "$NSH_PROMPT Bring:\n"
-                            mode=bring
+                        elif [[ "${ret[0]}" == '////fetch////' ]]; then
+                            echo -e "\e[A$(nsh_print_prompt)fetch\n"
+                            mode=fetch
                             pwd="$(pwd)"
                         elif [[ "${ret[0]}" == '////rename////' ]]; then
                             echo -n "$NSH_PROMPT rename: "
                             read_string --initial "${ret[1]}" line
                             [[ -n "$line" ]] && mv "${ret[1]}" "$line"
                         elif [[ "${ret[0]}" == '////git////' ]]; then
-                            echo -ne "\e[A\e[J$(nsh_print_prompt)git"
+                            echo -e "\e[A\e[J$(nsh_print_prompt)git"
                             nsheval git
                             echo
                         elif [[ "${ret[0]}" == '////back////' ]]; then
@@ -1892,9 +1900,11 @@ nsh() {
                         break
                     fi
                 fi
-                echo -ne '\e[A\e[0m\e[J' >&2
+                hide_cursor
+                echo -ne '\e[A\e[0m\r' >&2
             done
-            echo -ne '\e[A\e[0m\e[J' >&2
+            hide_cursor
+            echo -ne '\e[A\e[0m\r' >&2
             [[ -n $ret ]] && command="$ret " || command=
         elif [[ -n $command ]]; then
             nsheval
