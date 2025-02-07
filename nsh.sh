@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-__NSH_VERSION__='0.2.0'
 
 ##############################################################################
 # configs
@@ -45,19 +44,6 @@ nsh_print_prompt() {
 
 NSH_DEFAULT_CONFIG="$NSH_DEFAULT_CONFIG"$'\n'"# functions"
 NSH_DEFAULT_CONFIG="$NSH_DEFAULT_CONFIG"$'\n'"$(type nsh_print_prompt | sed 1d)"
-
-show_logo() {
-    disable_line_wrapping
-    echo -e '                   _
- __               | |
- \ \     ____  ___| |__
-  \ \   |  _ \/ __|  _ \
-  / /   | | | \__ \ | | |
- /_/    |_| |_|___/_| |_| ' $__NSH_VERSION__
-    echo " designed by naranicca"
-    echo
-    enable_line_wrapping
-}
 
 ##############################################################################
 # utility functions
@@ -755,53 +741,6 @@ get_hsize() {
     fi
 }
 
-task_manager() {
-    local KEY cpu mem cpu_activ_prev cpu_activ_cur cpu_total_prev cpu_total_cur
-    local user nice system idle iowait irq softirq steal guest
-    local line filesystem disk disk_size disk_used disk_avail
-    local str bs i=10
-    while true; do
-        # cpu usage
-        if read __cpu user nice system idle iowait irq softirq steal guest 2>/dev/null < /proc/stat; then
-            if [[ -z $cpu_activ_prev ]]; then
-                cpu_activ_prev=$((user+system+nice+softirq+steal))
-                cpu_total_prev=$((user+system+nice+softirq+steal+idle+iowait))
-                cpu=-
-                sleep 1s
-                continue
-            else
-                cpu_activ_cur=$((user+system+nice+softirq+steal))
-                cpu_total_cur=$((user+system+nice+softirq+steal+idle+iowait))
-                cpu=$((((cpu_activ_cur-cpu_activ_prev)*1000/(cpu_total_cur-cpu_total_prev)+5)/10))
-                cpu_activ_prev=$cpu_activ_cur
-                cpu_total_prev=$cpu_total_cur
-            fi
-        else
-            cpu=-
-        fi
-        # memory usage
-        mem="$(free -m 2>/dev/null | grep '^Mem:')"
-        if [ -z "$mem" ]; then
-            mem=-
-        else
-            mem=$(((${mem[2]}*1000/${mem[1]}+5)/10))
-        fi
-        # disk usage
-        if [[ $i -eq 10 ]]; then
-            line="$(df -h . 2>/dev/null | tail -n 1)" && line="${line%%%*}"
-            IFS=\  read filesystem disk_size disk_used disk_avail disk <<< "$line"
-            i=0
-        fi
-        i=$((i+1))
-
-        bs="$(echo -ne "${str//?/\\b}")"
-        str="$(printf '\rCPU: %3s%% | MEM: %3s%% | DISK: %s of %s used (%s%%)' $cpu $mem "$disk_used" "$disk_size" "$disk")"
-        echo -ne "$bs\r$str"
-        get_key -t 2 KEY
-        [[ -n $KEY ]] && break
-    done
-}
-
 disk() {
     disable_line_wrapping
     local cur="$PWD"
@@ -956,8 +895,6 @@ git() {
         files="$(printf '\"%s\" ' "$@")"
     elif [[ $# -gt 0 ]]; then
         command git "$@"
-        echo -e "\r$(nsh_print_prompt)git"
-        git
         return
     fi
     while true; do
@@ -1128,7 +1065,7 @@ git() {
                     fi
                 done
             else
-                run $op "$files" 
+                run $op "$files"
             fi
         fi
     done
@@ -1278,6 +1215,7 @@ play2048() {
         [[ "${board[@]}" != "${board_prev[@]}" ]] && display && board_hist+=("${board_prev[@]}") && sleep 0.1 && add $new
     done
     printf '%s\n' "${board[@]}" > ~/.cache/nsh/2048
+    echo -ne '\e[4A\e[J'
     show_cursor
 }
 
@@ -1481,11 +1419,11 @@ read_command() {
                 ;;
             $'\e[A') # up
                 if [[ ${#history[@]} -gt 0 ]]; then
-                    echo -ne "${pre//?/\\b}\r$prefix\e[J" >&2
+                    echo -e "${pre//?/\\b}\r$prefix\e[J" >&2
                     cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
                     [[ "$cmd" == ////////* ]] && cmd="${cmd:8:$((${#cmd}-8))}" && NEXT_KEY=$'\n'
                     cur=${#cmd}
-                    echo -n "$cmd" >&2
+                    echo -ne "\e[A${prefix//?/\\b}\r$prefix$cmd\e[J" >&2
                 fi
                 ;;
             $'\e[B') # down
@@ -1516,6 +1454,11 @@ read_command() {
             $'\e[4~'|$'\e[F') # end
                 echo -ne "\e[$((${#prefix}+${#cmd}))D$prefix$cmd" >&2
                 cur=${#cmd}
+                ;;
+            $'\e[21~') # F10
+                cmd='nsh menu'
+                echo -e "\e[$((${#prefix}+${#cmd}))D$prefix$cmd\e[J" >&2
+                break
                 ;;
             $'\e'*)
                 ;;
@@ -1556,17 +1499,150 @@ enable_line_wrapping
 ############################################################################
 # main loop
 ############################################################################
-nsh() {
-    local mode pwd
-    local history=() history_sizse=0
+nsh_main_loop() {
+    local NSH_VERSION='0.2.0'
+    local mode pw line
+    local history=() history_size=0
+    local bookmarks=() bookmark_size=0
     local command ret
-    local regsiter register_mode
+    local register register_mode
     local trash_path=~/.cache/nsh/trash
-    local tbeg telapsed
-    local NEXT_KEY
+    local tbeg telapsed i
+    local KEY NEXT_KEY
 
     show_cursor
     enable_line_wrapping
+
+    show_logo() {
+        disable_line_wrapping
+        echo -e '                   _
+ __               | |
+ \ \     ____  ___| |__
+  \ \   |  _ \/ __|  _ \
+  / /   | | | \__ \ | | |
+ /_/    |_| |_|___/_| |_| ' $NSH_VERSION
+        echo " designed by naranicca"
+        echo
+        enable_line_wrapping
+    }
+
+    unset -f nsh
+    nsh() {
+        local op="${1:-menu}"
+        case "$op" in
+            menu)
+                local items=(Bookmarks) ret
+                IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+                [[ -n "$__GIT_STAT__" ]] && items+=("Git")
+                items+=(System Config 2048 about..)
+
+                ret="$(menu --max-rows 1 "${items[@]}" --color-func paint_cyan --no-footer)"
+                case "$ret" in
+                    Bookmarks)
+                        nsh bookmarks
+                        ;;
+                    Git)
+                        git
+                        ;;
+                    System)
+                        nsh system
+                        echo
+                        ;;
+                    Config)
+                        config
+                        ;;
+                    2048)
+                        play2048
+                        ;;
+                    about..)
+                        show_logo
+                        ;;
+                esac
+                return
+                ;;
+            bookmarks)
+                ret="$(menu "${bookmarks[@]/:/ $NSH_COLOR_DIR}" -c 1)"
+                [[ -n "$ret" ]] && cd "$(strip_escape "${ret#??}")" && NEXT_KEY=$'\e'
+                return
+                ;;
+            mark)
+                line="$NSH_PROMPT Assign a key for bookmark: "
+                echo -ne "$line"
+                while true; do
+                    get_key KEY
+                    [[ -z $KEY || "$KEY" == $'\e' ]] && echo -ne "${line//?/\\b}\r\e[J" && return
+                    if [[ "$KEY" == [a-zA-Z0-9] ]]; then
+                        for ((i=0; i<${#bookmarks[@]}; i++)); do
+                            if [[ "${bookmarks[$i]}" == "$KEY:"* ]]; then
+                                echo $KEY
+                                echo -ne "$NSH_PROMPT $KEY is already assigned to ${bookmarks[$i]#??}. Overwrite? (y/n) "
+                                get_key KEY; echo "$KEY"
+                                [[ yY == *$KEY* ]] && break
+                                echo -ne "$NSH_PROMPT Assign another key: "
+                                KEY= && break
+                            fi
+                        done
+                        if [[ -n $KEY ]]; then
+                            load_bookmarks
+                            echo -e "${line//?/\\b}\r\e[0m$NSH_PROMPT Press \e[7m'$KEY\e[0m in explorer to jump to $(dirs +0)"
+                            bookmarks+=("$KEY:$PWD")
+                            printf '%s\n' "${bookmarks[@]}" > ~/.config/nsh/bookmarks
+                            break
+                        fi
+                    fi
+                done
+                return
+                ;;
+            system)
+                local cpu mem cpu_activ_prev cpu_activ_cur cpu_total_prev cpu_total_cur
+                local user nice system idle iowait irq softirq steal guest
+                local line filesystem disk disk_size disk_used disk_avail
+                local str bs i=10
+                while true; do
+                    # cpu usage
+                    if read __cpu user nice system idle iowait irq softirq steal guest 2>/dev/null < /proc/stat; then
+                        if [[ -z $cpu_activ_prev ]]; then
+                            cpu_activ_prev=$((user+system+nice+softirq+steal))
+                            cpu_total_prev=$((user+system+nice+softirq+steal+idle+iowait))
+                            cpu=-
+                            sleep 1s
+                            continue
+                        else
+                            cpu_activ_cur=$((user+system+nice+softirq+steal))
+                            cpu_total_cur=$((user+system+nice+softirq+steal+idle+iowait))
+                            cpu=$((((cpu_activ_cur-cpu_activ_prev)*1000/(cpu_total_cur-cpu_total_prev)+5)/10))
+                            cpu_activ_prev=$cpu_activ_cur
+                            cpu_total_prev=$cpu_total_cur
+                        fi
+                    else
+                        cpu=-
+                    fi
+                    # memory usage
+                    mem="$(free -m 2>/dev/null | grep '^Mem:')"
+                    if [ -z "$mem" ]; then
+                        mem=-
+                    else
+                        mem=$(((${mem[2]}*1000/${mem[1]}+5)/10))
+                    fi
+                    # disk usage
+                    if [[ $i -eq 10 ]]; then
+                        line="$(df -h . 2>/dev/null | tail -n 1)" && line="${line%%%*}"
+                        IFS=\  read filesystem disk_size disk_used disk_avail disk <<< "$line"
+                        i=0
+                    fi
+                    i=$((i+1))
+
+                    bs="$(echo -ne "${str//?/\\b}")"
+                    str="$(printf '\rCPU: %3s%% | MEM: %3s%% | DISK: %s of %s used (%s%%)' $cpu $mem "$disk_used" "$disk_size" "$disk")"
+                    echo -ne "$bs\r$str"
+                    get_key -t 2 KEY
+                    [[ -n $KEY ]] && break
+                done
+                ;;
+        esac
+    }
+
+    show_logo
 
     # load config
     config() {
@@ -1582,6 +1658,12 @@ nsh() {
         source "$config_file"
     }
     config load
+    # load bookmarks
+    load_bookmarks() {
+        touch ~/.config/nsh/bookmarks
+        IFS=$'\n' read -d "" -ra bookmarks < <(cat ~/.config/nsh/bookmarks | sort)
+    }
+    load_bookmarks
 
     git_marker() {
         local m tmp p
@@ -1618,7 +1700,7 @@ nsh() {
     }
     nsheval() {
         [[ $# -gt 0 ]] && command="$@"
-        [[ "$command" == '~' || "$command" == '~/'* ]] && command="$HOME/${commnad#?}"
+        [[ "$command" == '~' || "$command" == '~/'* ]] && command="$HOME/${command#?}"
         if [[ -d "$command" ]]; then
             command="cd $command"
         elif [[ -e "$command" ]]; then
@@ -1673,7 +1755,7 @@ nsh() {
     }
 
     shopt -s nocaseglob
-    update_dotglob() 
+    update_dotglob()
     {
         if [[ $NSH_SHOW_HIDDEN_FILES -ne 0 ]]; then
             shopt -s dotglob
@@ -1699,7 +1781,13 @@ nsh() {
     while true; do
         read_command --prefix "$(nsh_print_prompt)" --cmd "$command" command
 
-        if [[ "$command" == $'\t' ]]; then
+        if [[ "$command" == exit || "$command" == exit\ * ]]; then
+            ret="$(strip_spaces "${command#exit}")"
+            nsh() {
+                nsh_main_loop "$@"
+            }
+            return "${ret:-0}"
+        elif [[ "$command" == $'\t' ]]; then
             # explorer
             local line dirs files name path ret op
             local git_color
@@ -1723,7 +1811,7 @@ nsh() {
                 elif [[ $mode == fetch ]]; then
                     extra_params+=(--can-select select_file)
                 fi
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////open////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' "${extra_params[@]}")
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////open////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' "${extra_params[@]}")
                 if [[ ${#ret[@]} -eq 0 ]]; then
                     [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
                     mode=
@@ -1733,18 +1821,8 @@ nsh() {
                         toggle_dotglob
                         ret=
                     elif [[ "${ret[0]}" == '////menu////' ]]; then
-                        ret="$(menu --max-rows 1 Git System Config --color-func paint_cyan --no-footer)"
-                        case "$ret" in
-                            Git)
-                                git
-                                ;;
-                            System)
-                                task_manager
-                                ;;
-                            Config)
-                                config
-                                ;;
-                        esac
+                        nsh menu
+                        echo -e "\e[A"
                     else
                         if [[ "${ret[0]}" == '////open////' ]]; then
                             unset ret[0]
@@ -1881,6 +1959,17 @@ nsh() {
                             echo
                         elif [[ "${ret[0]}" == '////back////' ]]; then
                             cd - &>/dev/null
+                        elif [[ "${ret[0]}" == '////mark////' ]]; then
+                            nsh mark
+                            echo
+                        elif [[ "${ret[0]}" == '////bookmark////' ]]; then
+                            get_key KEY
+                            for ((i=0; i<${#bookmarks[@]}; i++)); do
+                                if [[ "${bookmarks[$i]}" == "$KEY:"* ]]; then
+                                    cd "${bookmarks[$i]#??}"
+                                    break
+                                fi
+                            done
                         else
                             [[ "${ret[0]}" == '////////' ]] && unset ret[0]
                             [[ ${#ret[@]} -gt 0 ]] && ret="$(printf '"%s" ' "${ret[@]}")" && ret="${ret% }"
@@ -1912,5 +2001,9 @@ nsh() {
     done
 }
 
-(return 0 2>/dev/null) || (show_logo && nsh)
+nsh() {
+    nsh_main_loop "$@"
+}
+
+(return 0 2>/dev/null) || nsh_main_loop "$@"
 
