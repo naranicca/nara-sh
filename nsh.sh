@@ -742,6 +742,7 @@ get_hsize() {
 }
 
 disk() {
+    __NSH_HIDE_ELAPSED_TIME__=1
     disable_line_wrapping
     local cur="$PWD"
     df -h .
@@ -879,6 +880,7 @@ git_status()  {
 
 git() {
     local line op files remote file branch hash p skip_resolve=0
+    __NSH_HIDE_ELAPSED_TIME__=1
     git_branch_name() {
         command git rev-parse --abbrev-ref HEAD 2>/dev/null
     }
@@ -1072,6 +1074,7 @@ git() {
 }
 
 play2048() {
+    __NSH_HIDE_ELAPSED_TIME__=1
     local board=()
     local board_prev=()
     local board_hist=()
@@ -1495,6 +1498,7 @@ else
     echo -ne '\r'
 fi
 enable_line_wrapping
+__NSH_HIDE_ELAPSED_TIME__=0
 
 ############################################################################
 # main loop
@@ -1514,6 +1518,7 @@ nsh_main_loop() {
     enable_line_wrapping
 
     show_logo() {
+        __NSH_HIDE_ELAPSED_TIME__=1
         disable_line_wrapping
         echo -e '                   _
  __               | |
@@ -1528,6 +1533,7 @@ nsh_main_loop() {
 
     unset -f nsh
     nsh() {
+        __NSH_HIDE_ELAPSED_TIME__=1
         local op="${1:-menu}"
         case "$op" in
             menu)
@@ -1719,7 +1725,7 @@ nsh_main_loop() {
         get_cursor_pos
         [[ $__COL__ -gt 1 ]] && echo $'\e[0;30;43m'"\n"$'\e[0m'
         [[ $ret -ne 0 ]] && ret=$'\e[0;31m'"[$ret returned]"$'\e[0m' || ret=
-        if [[ $telapsed -gt 0 && "$command" != git ]]; then
+        if [[ $telapsed -gt 0 && $__NSH_HIDE_ELAPSED_TIME__ -eq 0 ]]; then
             local h=$((telapsed/3600))
             local m=$(((telapsed%3600)/60))
             local s=$((telapsed%60))
@@ -1729,6 +1735,7 @@ nsh_main_loop() {
             ret+="${s}s elapsed]"$'\e[0m'
         fi
         [[ -n $ret ]] && echo "$ret"$'\e[J'
+        __NSH_HIDE_ELAPSED_TIME__=0
         # save command to history
         history_size=${#history[@]}
         if [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$command" ]]; then
