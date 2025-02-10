@@ -674,6 +674,16 @@ menu() {
     enable_line_wrapping >&2
 }
 
+generate_new_filename() {
+    [[ ! -e "$1" ]] && echo "$1" && return
+    for i in {2..999999}; do
+        if [[ ! -e "$1($i)" ]]; then
+            echo "$1($i)"
+            return
+        fi
+    done
+}
+
 cpmv() {
     local src dst src_name dst_name i
     local op='cp -r' && [[ $1 == --mv ]] && op='mv'
@@ -693,12 +703,7 @@ cpmv() {
             src="$(sed 's/\/*$//' <<< "$1")"
             src_name="${src##*/}" && dst_name="$dst"
             if [[ -e "$dst" && -e "$dst/$src_name" ]]; then
-                for i in {2..999999}; do
-                    if [[ ! -e "$dst/$src_name($i)" ]]; then
-                        dst_name="$dst/$src_name($i)"
-                        break
-                    fi
-                done
+                dst_name="$(generate_new_filename "$dst/$src_name")"
             fi
             echo -e "[${op%% *}] $(put_filecolor "$src")${src/#$HOME\//\~\/}\e[0m --> $dst_name"
             command $op "$src" "$dst_name"
@@ -1044,13 +1049,48 @@ git() {
                         fi
                         echo -ne '\e[A\r\e[J'
                     elif [[ -n "$branch" ]]; then
-                        line="$(menu Checkout Merge Delete --color-func paint_cyan --no-footer)"
+                        line="$(menu Checkout Merge Browse Delete --color-func paint_cyan --no-footer)"
                         if [[ "$line" == Checkout ]]; then
-                            run checkout "${branch#origin\/}"
-                            break
+                            echo -ne "$NSH_PROMPT Checkout $branch. Conintue(y/n)?"
+                            get_key KEY && echo "$KEY"
+                            [[ yY == *$KEY* ]] && run checkout "${branch#origin\/}" && break
                         elif [[ "$line" == Merge ]]; then
-                            run merge "${branch#origin\/}"
-                            break
+                            echo -ne "$NSH_PROMPT Merge $branch. Conintue(y/n)?"
+                            get_key KEY && echo "$KEY"
+                            [[ yY == *$KEY* ]] && run merge "${branch#origin\/}" && break
+                        elif [[ "$line" == Browse ]]; then
+                            local path=
+                            selfn() {
+                                [[ $1 == 0 ]] && return 1 || return 0
+                            }
+                            while true; do
+                                echo "$NSH_PROMPT ${path:-$'\b'} on $branch"
+                                local p="$(command git show --color=always "$branch:$path" | tail -n +2 | sed "s/.*\/$/$NSH_COLOR_DIR&\x1b\[0m/" | menu -c 1 --can-select selfn --key H 'echo ..')"
+                                [[ -z $p ]] && break
+                                p="$(strip_escape "$p")"
+                                if [[ "$p" == .. ]]; then
+                                    path="$(sed 's/[^/]*\/$//' <<< "$path")"
+                                    echo -ne '\e[A\r\e[J'
+                                elif [[ "$p" == */ ]]; then
+                                    [[ -z "$path" ]] && path="$p" || path="$path$p"
+                                    echo -ne '\e[A\r\e[J'
+                                else
+                                    local name="$path${p#////}"
+                                    op="$(menu "Checkout $name" "Diff $name" "Copy $name")"
+                                    if [[ "$op" == Checkout* ]]; then
+                                        run checkout "$branch" -- "$name"
+                                    elif [[ "$op" == Diff* ]]; then
+                                        run diff "$(git_branch_name)" "$branch" "$name"
+                                    elif [[ "$op" == Copy* ]]; then
+                                        local new_name="$(generate_new_filename "$name")"
+                                        echo -e "\e[A$NSH_PROMPT $branch:$name --> $new_name\e[J"
+                                        command git show "$branch:$name" > "$(generate_new_filename "$new_name")"
+                                    else
+                                        echo -ne '\e[A\r\e[J'
+                                    fi
+                                fi
+                            done
+                            echo -ne '\e[A\r\e[J'
                         elif [[ "$line" == Delete ]]; then
                             if [[ "$branch" == origin\/* ]]; then
                                 echo -ne "$NSH_PROMPT \e[31m${branch#*/} branch will be deleted from repository. Continue? (y/n)\e[0m "
@@ -1319,7 +1359,8 @@ read_command() {
                     cmd=
                     cur=0
                 else
-                    NEXT_KEY=$'\t'
+                    cmd=$'\e'
+                    break
                 fi
                 ;;
             $'\04') # ctrl+D
@@ -1365,7 +1406,7 @@ read_command() {
                 #    ^       ^
                 #    iword   ichunk
                 if [[ -z $cmd ]]; then
-                    NEXT_KEY=$'\e[B'
+                    NEXT_KEY=$'\e'
                 else
                     local quote=
                     while true; do
@@ -1431,8 +1472,7 @@ read_command() {
                 ;;
             $'\e[B') # down
                 if [[ -z $cmd ]]; then
-                    cmd=$'\t'
-                    break
+                    NEXT_KEY=$'\e'
                 else
                     cmd=
                     cur=0
@@ -1693,7 +1733,7 @@ nsh_main_loop() {
             elif [[ "$__GIT_CHANGES__;" == *";!!$name;"* ]]; then
                 echo -e '\e[37;41m!'
             elif [[ "$__GIT_CHANGES__;" == *";??$name;"* ]]; then
-                echo -e '\e[30;48;5;248m?'
+                echo -e '\e[30;48;5;238m '
             elif [[ "$__GIT_CHANGES__;" == *";++$name;"* ]]; then
                 echo -e '\e[0;42m '
             else
@@ -1794,7 +1834,7 @@ nsh_main_loop() {
                 nsh_main_loop "$@"
             }
             return "${ret:-0}"
-        elif [[ "$command" == $'\t' ]]; then
+        elif [[ "$command" == $'\e' ]]; then
             # explorer
             local line dirs files name path ret op
             local git_color
