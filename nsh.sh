@@ -715,18 +715,38 @@ cpmv() {
 }
 
 ps() {
-    local param pid line
+    local pid list line header word i0 i1
     if [[ $# -gt 0 || ! -t 0 || ! -t 1 ]]; then
         command ps "$@"
     else
         while true; do
-            #param="-o pid,command"
-            param="-a -o pid,user,command"
-            pid=$((command ps -x $param 2>/dev/null || command ps -a || command ps -ef) | menu -c 1 | awk '{print $1}')
-            [[ -z $pid ]] && break
-            echo -e "$NSH_PROMPT Kill the process $pid?"
-            echo -n '  ' && command ps -p "$pid"
-            [[ $(menu OK Cancel) == OK ]] && kill -9 $pid
+            header= list=()
+            while IFS=$'\n' read line; do
+                [[ -z $header ]] && header="$line " && continue
+                list+=("$line")
+            done < <(command ps aux --sort -%cpu 2>/dev/null || command ps aux 2>/dev/null)
+            echo "$header"
+            line="$(menu -c 1 "${list[@]}")"
+            echo -ne '\r\e[A\e[J'
+            [[ -z "$line" ]] && break
+
+            word='PID'
+            i1="$(sed "s/\($word[ ]\+\).*/\1/" <<< "$header")"
+            i0="${i1%$word*}" && i0="$(sed 's/[ ]*$//' <<< "$i0")"
+            i0=${#i0} && i1=${#i1}
+            pid="${line:$i0:$((i1-i0))}" && pid="$(strip_spaces "$pid")"
+
+            line="$(command ps -p "$pid" | tail -n +2)"
+            if [[ -n "$line" ]]; then
+                echo -e "$NSH_PROMPT Kill the process $pid?"
+                echo "$header"
+                echo "$line"
+                if [[ $(menu -r 1 OK Cancel) == OK ]]; then
+                    kill -9 $pid
+                else
+                    echo -ne '\r\e[3A\e[J'
+                fi
+            fi
         done
     fi
 }
@@ -1551,8 +1571,8 @@ nsh_main_loop() {
     local command ret
     local register register_mode
     local trash_path=~/.cache/nsh/trash
-    local tbeg telapsed i
-    local KEY NEXT_KEY
+    local tbeg telapsed
+    local i KEY NEXT_KEY
 
     show_cursor
     enable_line_wrapping
@@ -1733,7 +1753,7 @@ nsh_main_loop() {
             elif [[ "$__GIT_CHANGES__;" == *";!!$name;"* ]]; then
                 echo -e '\e[37;41m!'
             elif [[ "$__GIT_CHANGES__;" == *";??$name;"* ]]; then
-                echo -e '\e[30;48;5;238m '
+                echo -e '\e[30;48;5;240m '
             elif [[ "$__GIT_CHANGES__;" == *";++$name;"* ]]; then
                 echo -e '\e[0;42m '
             else
