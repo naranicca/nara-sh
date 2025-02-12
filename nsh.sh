@@ -1925,39 +1925,9 @@ nsh_main_loop() {
                                     done
                                     echo
                                 fi
-                            elif [[ ${#ret[@]} -eq 1 ]]; then
-                                if [[ -d "${ret[1]}" ]]; then
-                                    cd "${ret[1]}"
-                                    break
-                                else
-                                    name="${ret[1]}"
-                                    line=("Run $name" "Edit $name")
-                                    [[ $__GIT_CHANGES__ =~ \;[!]*"$name"\; ]] && line+=('Git')
-                                    [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=('Git add')
-                                    local op="$(menu "${line[@]}" --color-func paint_cyan --no-footer)"
-                                    if [[ $op == Edit* ]]; then
-                                        $NSH_DEFAULT_EDITOR "$name"
-                                    elif [[ $op == Run* ]]; then
-                                        if [[ $name == *.py ]]; then
-                                            ret="python $name"
-                                        elif [[ -x "$name" ]]; then
-                                            ret="./$name"
-                                        else
-                                            ret="$name"
-                                        fi
-                                        break
-                                    elif [[ $op == Git ]]; then
-                                        echo -e "\e[A\r$(nsh_print_prompt)git\e[J"
-                                        git -- "$name"
-                                        echo
-                                    elif [[ $op == Git\ add ]]; then
-                                        echo -e "\e[A\r$(nsh_print_prompt)git add $fname\e[J"
-                                        git add "$name"
-                                        echo
-                                    else
-                                        ret=
-                                    fi
-                                fi
+                            elif [[ ${#ret[@]} -eq 1 && -d "${ret[1]}" ]]; then
+                                cd "${ret[1]}"
+                                break
                             else
                                 ret="$(printf '"%s" ' "${ret[@]}")"
                                 break
@@ -2044,16 +2014,48 @@ nsh_main_loop() {
                         fi
                     fi
                 else
-                    ret="$(strip_escape "$ret")"
-                    if [[ -d "$ret" ]]; then
-                        cd "$ret"
+                    name="$(strip_escape "$ret")"
+                    if [[ -d "$name" ]]; then
+                        cd "$name"
                     else
-                        if [[ $ret == *.py ]]; then
-                            ret="python $ret"
-                        elif [[ -x "$ret" ]]; then
-                            ret="./$ret"
+                        line=("Run $name" "Edit $name")
+                        [[ $__GIT_CHANGES__ =~ \;[!]*"$name"\; ]] && line+=("Git: diff $name" "Git: stage $name" "Git: commit $name" "Git: revert $name" "Git...")
+                        [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=("Git: add $name")
+                        local op="$(menu "${line[@]}" --color-func paint_cyan --no-footer)"
+                        if [[ $op == Edit* ]]; then
+                            $NSH_DEFAULT_EDITOR "$name"
+                        elif [[ $op == Run* ]]; then
+                            if [[ $name == *.py ]]; then
+                                ret="python $name"
+                            elif [[ -x "$name" ]]; then
+                                ret="./$name"
+                            else
+                                ret="$name"
+                            fi
+                            break
+                        elif [[ $op == *diff* ]]; then
+                            echo -e "\e[A\r$(nsh_print_prompt)git diff $fname\e[J"
+                            git diff "$name"
+                            echo
+                        elif [[ $op == *add* || $op == *stage* ]]; then
+                            echo -e "\e[A\r$(nsh_print_prompt)git add $fname\e[J"
+                            git add "$name"
+                            echo
+                        elif [[ $op == *commit* ]]; then
+                            echo -e "\e[A\r$(nsh_print_prompt)git commit $fname\e[J"
+                            git commit "$name"
+                            echo
+                        elif [[ $op == *revert* ]]; then
+                            echo -e "\e[A\r$(nsh_print_prompt)git checkout -- $fname\e[J"
+                            git checkout -- "$name"
+                            echo
+                        elif [[ $op == Git\.\.\. ]]; then
+                            echo -e "\e[A\r$(nsh_print_prompt)git\e[J"
+                            git -- "$name"
+                            echo
+                        else
+                            ret=
                         fi
-                        break
                     fi
                 fi
                 hide_cursor
