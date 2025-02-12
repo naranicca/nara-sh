@@ -33,7 +33,7 @@ nsh_print_prompt() {
     local git_color
     local prefix="\e[0;32;40m$(eval "$NSH_PROMPT_PREFIX" 2>/dev/null || echo "$NSH_PROMPT_PREFIX")"
     prefix="$prefix"$'\e[7m'"$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR"
-    IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+    IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
     if [[ -z $__GIT_STAT__ ]]; then
         echo -ne "$prefix\e[0;7m$NSH_COLOR_DIR $(dirs) \e[0m$NSH_COLOR_DIR$NSH_PROMPT_SEPARATOR\e[0m "
     else
@@ -925,7 +925,7 @@ git() {
         return
     fi
     while true; do
-        IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+        IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
         if [[ -z $__GIT_STAT__ ]]; then
             echo "$NSH_PROMPT This is not a git repository."
             read_command --prefix "$NSH_PROMPT To clone, enter the url: " --cmd 'https://github.com/' line
@@ -951,7 +951,7 @@ git() {
                     echo -n "$NSH_PROMPT $file was resolved. Stage the file? (y/n) "
                     get_key KEY; echo "$KEY"
                     [[ Yy == *$KEY* ]] && command git add "$file"
-                    IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+                    IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
                 fi
             done
             if [[ $__GIT_CHANGES__ == *\!\!* ]]; then
@@ -1598,7 +1598,7 @@ nsh_main_loop() {
         case "$op" in
             menu)
                 local items=(Bookmarks) ret
-                IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+                IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
                 [[ -n "$__GIT_STAT__" ]] && items+=("Git")
                 items+=(System Config 2048 about..)
 
@@ -1684,7 +1684,7 @@ nsh_main_loop() {
                         cpu=-
                     fi
                     # memory usage
-                    mem="$(free -m 2>/dev/null | grep '^Mem:')"
+                    mem=(`free -m 2>/dev/null | grep '^Mem:'`)
                     if [ -z "$mem" ]; then
                         mem=-
                     else
@@ -1860,7 +1860,7 @@ nsh_main_loop() {
             local git_color
             local i
             while true; do
-                IFS=$'\n' read -sdR __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
+                IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
                 [[ -n $__GIT_STAT__ ]] && __GIT_STAT__=$' \e[30;'"$((git_color+10))m($__GIT_STAT__)"$'\e[0m'
                 draw_titlebar
                 dirs=() files=()
