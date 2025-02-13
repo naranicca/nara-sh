@@ -1422,7 +1422,7 @@ read_command() {
                 fi
                 ;;
             $'\t') # tab completion
-                # ls abc/def/g
+                # ls abc/def/gh
                 #    ^       ^
                 #    iword   ichunk
                 if [[ -z $cmd ]]; then
@@ -1502,12 +1502,16 @@ read_command() {
                 if [[ $cur -lt ${#cmd} ]]; then
                     echo -ne "${cmd:$cur:1}" >&2
                     cur=$((cur+1))
+                    iword="${cmd:0:$cur}" && iword="${iword% *} " && iword=${#iword}
+                    ichunk=$iword
                 fi
                 ;;
             $'\e[D') # left
                 if [[ $cur -gt 0 ]]; then
                     echo -ne '\b' >&2
                     cur=$((cur-1))
+                    iword="${cmd:0:$cur}" && iword="${iword% *} " && iword=${#iword}
+                    ichunk=$iword
                 fi
                 ;;
             $'\e[1~'|$'\e[H') # home
@@ -1766,36 +1770,6 @@ nsh_main_loop() {
     }
     nsheval() {
         [[ $# -gt 0 ]] && command="$@"
-        [[ "$command" == '~' || "$command" == '~/'* ]] && command="$HOME/${command#?}"
-        if [[ -d "$command" ]]; then
-            command="cd $command"
-        elif [[ -e "$command" ]]; then
-            if [[ "$command" == *.py ]]; then
-                command="python $command"
-            elif [[ -x "$command" ]]; then
-                [[ "$command" != './'* ]] && command="./$command"
-            fi
-        fi
-        tbeg=$(get_timestamp)
-        trap 'abcd &>/dev/null' INT
-        eval "$command"
-        ret=$?
-        telapsed=$((($(get_timestamp)-tbeg+500)/1000))
-        command="$(strip_spaces "$command")"
-        get_cursor_pos
-        [[ $__COL__ -gt 1 ]] && echo $'\e[0;30;43m'"\n"$'\e[0m'
-        [[ $ret -ne 0 ]] && ret=$'\e[0;31m'"[$ret returned]"$'\e[0m' || ret=
-        if [[ $telapsed -gt 0 && $__NSH_HIDE_ELAPSED_TIME__ -eq 0 ]]; then
-            local h=$((telapsed/3600))
-            local m=$(((telapsed%3600)/60))
-            local s=$((telapsed%60))
-            ret+=$'\e[0;33m['
-            [[ $h > 0 ]] && ret+="${h}h "
-            [[ $h > 0 || $m > 0 ]] && ret+="${m}m "
-            ret+="${s}s elapsed]"$'\e[0m'
-        fi
-        [[ -n $ret ]] && echo "$ret"$'\e[J'
-        __NSH_HIDE_ELAPSED_TIME__=0
         # save command to history
         history_size=${#history[@]}
         if [[ $history_size -eq 0 || "${history[$((history_size-1))]}" != "$command" ]]; then
@@ -1810,6 +1784,30 @@ nsh_main_loop() {
                 [[ $history_idx -lt 0 ]] && history_idx=0
             fi
         fi
+        # execute command
+        [[ "$command" == '~' || "$command" == '~/'* ]] && command="$HOME/${command#?}"
+        if [[ "$command" == */ && -d "$command" ]]; then
+            command="cd $command"
+        fi
+        tbeg=$(get_timestamp)
+        trap 'abcd &>/dev/null' INT
+        eval "$command"
+        ret=$?
+        telapsed=$((($(get_timestamp)-tbeg+500)/1000))
+        get_cursor_pos
+        [[ $__COL__ -gt 1 ]] && echo $'\e[0;30;43m'"\n"$'\e[0m'
+        [[ $ret -ne 0 ]] && ret=$'\e[0;31m'"[$ret returned]"$'\e[0m' || ret=
+        if [[ $telapsed -gt 0 && $__NSH_HIDE_ELAPSED_TIME__ -eq 0 ]]; then
+            local h=$((telapsed/3600))
+            local m=$(((telapsed%3600)/60))
+            local s=$((telapsed%60))
+            ret+=$'\e[0;33m['
+            [[ $h > 0 ]] && ret+="${h}h "
+            [[ $h > 0 || $m > 0 ]] && ret+="${m}m "
+            ret+="${s}s elapsed]"$'\e[0m'
+        fi
+        [[ -n $ret ]] && echo "$ret"$'\e[J'
+        __NSH_HIDE_ELAPSED_TIME__=0
         command=
         trap - INT
     }
@@ -1891,7 +1889,7 @@ nsh_main_loop() {
                         nsh menu
                         echo -e "\e[A"
                     else
-                        if [[ "${ret[0]}" == '////open////' ]]; then
+                        if [[ "${ret[0]}" == '////open////' ]]; then # enter key
                             unset ret[0]
                             if [[ $mode == add ]]; then
                                 mode=
@@ -2036,18 +2034,22 @@ nsh_main_loop() {
                         elif [[ $op == *diff* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git diff $fname\e[J"
                             git diff "$name"
+                            git -- "$name"
                             echo
                         elif [[ $op == *add* || $op == *stage* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git add $fname\e[J"
                             git add "$name"
+                            git
                             echo
                         elif [[ $op == *commit* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git commit $fname\e[J"
                             git commit "$name"
+                            git
                             echo
                         elif [[ $op == *revert* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git checkout -- $fname\e[J"
                             git checkout -- "$name"
+                            git
                             echo
                         elif [[ $op == Git\.\.\. ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git\e[J"
