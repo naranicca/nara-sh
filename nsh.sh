@@ -1667,7 +1667,9 @@ nsh_main_loop() {
                 local cpu mem cpu_activ_prev cpu_activ_cur cpu_total_prev cpu_total_cur
                 local user nice system idle iowait irq softirq steal guest
                 local line filesystem disk disk_size disk_used disk_avail
+                local process size
                 local str bs i=10
+                hide_cursor
                 while true; do
                     # cpu usage
                     if read __cpu user nice system idle iowait irq softirq steal guest 2>/dev/null < /proc/stat; then
@@ -1701,13 +1703,28 @@ nsh_main_loop() {
                         i=0
                     fi
                     i=$((i+1))
+                    # process
+                    get_terminal_size && size=$(($LINES*20/100))
+                    process=()
+                    while IFS= read line; do
+                        process+=("$line")
+                    done < <(ps aux --sort=-%cpu 2>/dev/null || ps aux 2>/dev/null)
 
-                    bs="$(echo -ne "${str//?/\\b}")"
-                    str="$(printf '\rCPU: %3s%% | MEM: %3s%% | DISK: %s of %s used (%s%%)' $cpu $mem "$disk_used" "$disk_size" "$disk")"
-                    echo -ne "$bs\r$str"
+                    printf '\rCPU: %3s%% | MEM: %3s%% | DISK: %s%% (%s/%s, %s free)\n' $cpu $mem "$disk" "$disk_used" "$disk_size" "$disk_avail"
+                    for ((i=0; i<size; i++)); do
+                        if [[ $i -eq $((size-1)) ]]; then
+                            echo -n "${process[$i]}"
+                        else
+                            echo "${process[$i]}"
+                        fi
+                    done
+                    bs="${process[$((size-1))]//?/\\b}"
+
                     get_key -t 2 KEY
                     [[ -n $KEY ]] && break
+                    echo -ne "$bs\e[${size}A"
                 done
+                show_cursor
                 ;;
         esac
     }
