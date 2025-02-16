@@ -928,7 +928,7 @@ git() {
         IFS=$'\n' read -d '' __GIT_STAT__ git_color __GIT_CHANGES__ < <(git_status)
         if [[ -z $__GIT_STAT__ ]]; then
             echo "$NSH_PROMPT This is not a git repository."
-            read_command --prefix "$NSH_PROMPT To clone, enter the url: " --cmd 'https://github.com/' line
+            read_command --prefix "$NSH_PROMPT To clone, enter the url: " --initial 'https://github.com/' line
             [[ -z $line ]] && return 1
             command git clone "$line"
             local dir="${line##*/}" && dir="${dir%.git}"
@@ -1283,74 +1283,7 @@ play2048() {
 }
 
 read_string() {
-    local str= && [[ $1 == --initial ]] && str="$2" && shift && shift
-    local cursor=${#str}
-    get_cursor_pos
-    show_cursor
-    while true; do
-        local cx=$((cursor%COLUMNS))
-        local cy=$((cursor/COLUMNS))
-        hide_cursor
-        move_cursor "$((__ROW__+cy));$__COL__"
-        if [[ $cursor -lt ${#str} ]]; then
-            echo "$str"
-            move_cursor "$((__ROW__+cy));$__COL__"
-        fi
-        echo -n "${str:0:$cursor}"
-        show_cursor
-        get_key KEY </dev/tty
-        case $KEY in
-        $'\e'|$'\04')
-            str=
-            break
-            ;;
-        $'\t')
-            local pre="${str:0:$cursor}"
-            local post="${str:$cursor}"
-            str="$pre    $post"
-            cursor=$((cursor+4))
-            ;;
-        $'\177'|$'\b') # backspace
-            if [ $cursor -gt 0 ]; then
-                local pre="${str:0:$cursor}"
-                local post="${str:$cursor}"
-                str="${pre%?}$post"
-                move_cursor "$((__ROW__+cy));$__COL__"
-                echo -n "$str "
-                ((cursor--))
-            fi
-            ;;
-        $'\e[3~') # del
-            local pre="${str:0:$cursor}"
-            local post="${str:$cursor}"
-            str="$pre${post:1}"
-            echo -n "$str "
-            ;;
-        $'\e[D')
-            [[ $cursor -gt 0 ]] && ((cursor--))
-            ;;
-        $'\e[C')
-            [[ $cursor -lt ${#str} ]] && ((cursor++))
-            ;;
-        $'\e[1~'|$'\e[H')
-            cursor=0
-            ;;
-        $'\e[4~'|$'\e[F')
-            cursor=${#str}
-            ;;
-        $'\n')
-            cursor=-1
-            break
-            ;;
-        [[:print:]])
-            local pre="${str:0:$cursor}"
-            local post="${str:$cursor}"
-            str="$pre$KEY$post"
-            ((cursor++))
-            ;;
-        esac
-    done
-    printf -v "${1:-str}" "%s" "$str"
+    read_command --no-tab-completion --no-history "$@"
 }
 
 read_command() {
@@ -1359,10 +1292,27 @@ read_command() {
     local cur=0
     local pre post cand word chunk
     local iword ichunk
+    local enable_tab_completion=1 enable_history=1
     local KEY
 
-    [[ $1 == --prefix ]] && prefix="$2" && shift && shift && echo -ne "\r\e[0m$prefix" >&2
-    [[ $1 == --cmd ]] && cmd="$2" && cur=${#cmd} && shift && shift && echo -n "$cmd" >&2
+    while true; do
+        if [[ $1 == --prefix ]]; then
+            prefix="$2"
+            shift
+            echo -ne "\r\e[0m$prefix" >&2
+        elif [[ $1 == --initial ]]; then
+            cmd="$2" && cur=${#cmd}
+            shift
+            echo -n "$cmd" >&2
+        elif [[ $1 == --no-tab-completion ]]; then
+            enable_tab_completion=0
+        elif [[ $1 == --no-history ]]; then
+            enable_history=0
+        else
+            break
+        fi
+        shift
+    done
     iword=$cur && [[ "$cmd" == *\ * ]] && iword="${cmd% *} " && iword=${#iword}
     ichunk=$iword
 
@@ -1427,7 +1377,7 @@ read_command() {
                 #    iword   ichunk
                 if [[ -z $cmd ]]; then
                     NEXT_KEY=$'\e'
-                else
+                elif [[ $enable_tab_completion -ne 0 ]]; then
                     local quote=
                     while true; do
                         chunk="${pre:$ichunk}"
@@ -1482,7 +1432,7 @@ read_command() {
                 fi
                 ;;
             $'\e[A') # up
-                if [[ ${#history[@]} -gt 0 ]]; then
+                if [[ $enable_history -ne 0 && ${#history[@]} -gt 0 ]]; then
                     echo -e "${pre//?/\\b}\r$prefix\e[J" >&2
                     cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
                     [[ "$cmd" == ////////* ]] && cmd="${cmd:8:$((${#cmd}-8))}" && NEXT_KEY=$'\n'
@@ -1491,11 +1441,13 @@ read_command() {
                 fi
                 ;;
             $'\e[B') # down
-                if [[ -z $cmd ]]; then
-                    NEXT_KEY=$'\e'
-                else
-                    cmd=
-                    cur=0
+                if [[ $enable_history -ne 0 ]]; then
+                    if [[ -z $cmd ]]; then
+                        NEXT_KEY=$'\e'
+                    else
+                        cmd=
+                        cur=0
+                    fi
                 fi
                 ;;
             $'\e[C') # right
@@ -1529,7 +1481,7 @@ read_command() {
                 ;;
             $'\e'*)
                 ;;
-            *)
+            [[:print:]])
                 cmd="$pre$KEY$post"
                 cur=$((cur+1))
                 if [[ $KEY == \  ]]; then
@@ -1670,6 +1622,7 @@ nsh_main_loop() {
                 local process size
                 local str bs i=10
                 hide_cursor
+                disable_line_wrapping
                 while true; do
                     # cpu usage
                     if read __cpu user nice system idle iowait irq softirq steal guest 2>/dev/null < /proc/stat; then
@@ -1725,6 +1678,7 @@ nsh_main_loop() {
                     echo -ne "$bs\e[${size}A"
                 done
                 show_cursor
+                enable_line_wrapping
                 ;;
         esac
     }
@@ -1861,7 +1815,7 @@ nsh_main_loop() {
 
     mode=
     while true; do
-        read_command --prefix "$(nsh_print_prompt)" --cmd "$command" command
+        read_command --prefix "$(nsh_print_prompt)" --initial "$command" command
 
         if [[ "$command" == exit || "$command" == exit\ * ]]; then
             ret="$(strip_spaces "${command#exit}")"
