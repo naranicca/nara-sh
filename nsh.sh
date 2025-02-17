@@ -250,6 +250,7 @@ menu() {
     local avail_rows
     local can_select=
     local show_footer=1
+    local allow_escape=0
     local search
 
     hide_cursor >&2
@@ -293,6 +294,8 @@ menu() {
             shift && return_fn+=("$1") # if fn ends with '...', menu will not end after running the function
         elif [[ $1 == --no-footer ]]; then
             show_footer=0
+        elif [[ $1 == --raw ]]; then
+            allow_escape=1
         else
             item="${1//\\n/}"
             [[ -n "$item" ]] && list+=("$item")
@@ -309,7 +312,7 @@ menu() {
     colors=() markers=() selected=()
     if [[ -n $color_func ]]; then
         for ((i=0; i<list_size; i++)); do
-            colors[$i]="$($color_func "${list[$i]}")"
+            colors[$i]="$($color_func "${list[$i]}" "$i")"
         done
     fi
     if [[ -n $marker_func ]]; then
@@ -363,13 +366,17 @@ menu() {
     if [[ $cols -gt 1 ]]; then
         for ((i=0; i<list_size; i++)); do
             trail="$(printf "%$((w-${disp[$i]}))s" ' ')"
-            disp[$i]="${list[$i]}$trail"
+            item="${list[$i]}" && [[ $allow_escape -eq 0 ]] && item="${item//[^[:print:]]/^[}"
+            disp[$i]="$item$trail"
         done
     else
         if [[ $__WRAP_OPTION_SUPPORTED__ -eq 0 ]]; then
             for ((i=0; i<list_size; i++)); do
-                disp[$i]="${list[$i]:0:$((w-1))}"
+                item="${list[$i]}" && [[ $allow_escape -eq 0 ]] && item="${item//[^[:print:]]/^[}"
+                disp[$i]="${item:0:$((w-1))}"
             done
+        elif [[ $allow_escape -eq 0 ]]; then
+            disp=("${list[@]//[^[:print:]]/^[}")
         else
             disp=("${list[@]}")
         fi
@@ -822,7 +829,7 @@ disk() {
         ret="$(for ((i=0; i<${#files[@]}; i++)); do
             local p='            ' && [[ ${sideinfo[$i]} -ge 0 ]] && p="[${bars[$(((${sideinfo[$i]}*100/$total+5)/10))]}]"
             printf "%8s %s\n" "$(get_hsize ${sideinfo[$i]})" "$p $(put_filecolor "${files[$i]}")${files[$i]}"
-        done | menu -c 1 --key $'\eq:' 'quit' | strip_escape)"
+        done | menu --raw -c 1 --key $'\eq:' 'quit' | strip_escape)"
         ret="${ret#*\] }"
         [[ -z "$ret" ]] && break
         [[ -d "$ret" ]] && cd "$ret"
@@ -962,14 +969,21 @@ git() {
                 command git commit
             fi
         else
-            local branch=$'\e'"[$git_color;4m[$__GIT_STAT__]"
+            local branch="[$__GIT_STAT__]"
             local dst=
             local cnt
             op=
+            color_branch_files() {
+                if [[ $2 == 0 ]]; then
+                    echo $'\e['"$git_color;4m"
+                else
+                    put_filecolor "$1"
+                fi
+            }
             if [[ -z "$files" ]]; then
                 if [[ -n $__GIT_CHANGES__ ]]; then
                     IFS=\;$'\n' read -d '' -a files <<< "${__GIT_CHANGES__//\;[\?\!\+][\?\!\+]/\;}"
-                    IFS=$'\n' read -d '' -a files < <(menu -c 1 "$branch" "${files[@]}" --select --color-func put_filecolor --marker-func git_marker)
+                    IFS=$'\n' read -d '' -a files < <(menu -c 1 "$branch" "${files[@]}" --select --color-func color_branch_files --marker-func git_marker)
                 fi
                 cnt=${#files[@]}
                 if [[ $cnt -gt 0 ]]; then
@@ -1015,7 +1029,7 @@ git() {
             elif [[ "$op" == log ]]; then
                 p= && [[ $__WRAP_OPTION_SUPPORTED__ -ne 0 ]] && p='--color=always'
                 while true; do
-                    line="$(eval "command git log $p --decorate --oneline $files" | menu -c 1 | strip_escape)"
+                    line="$(eval "command git log $p --decorate --oneline $files" | menu --raw -c 1 | strip_escape)"
                     if [[ -n "$line" ]]; then
                         hash="${line%% *}"
                         hash="$(sed 's/^[^0-9^a-z^A-Z]*//' <<< "$line")" && hash="${hash%% *}"
@@ -1083,9 +1097,12 @@ git() {
                             selfn() {
                                 [[ $1 == 0 ]] && return 1 || return 0
                             }
+                            color_slash() {
+                                [[ "$1" == */ ]] && echo "$NSH_COLOR_DIR$1"
+                            }
                             while true; do
                                 echo "$NSH_PROMPT ${path:-$'\b'} on $branch"
-                                local p="$(command git show --color=always "$branch:$path" | tail -n +2 | sed "s/.*\/$/$NSH_COLOR_DIR&\x1b\[0m/" | menu -c 1 --can-select selfn --key H 'echo ..')"
+                                local p="$(command git show --color=always "$branch:$path" | tail -n +2 | menu -c 1 --color-func color_slash --can-select selfn --key H 'echo ..')"
                                 [[ -z $p ]] && break
                                 p="$(strip_escape "$p")"
                                 if [[ "$p" == .. ]]; then
@@ -1987,7 +2004,7 @@ nsh_main_loop() {
                     if [[ -d "$name" ]]; then
                         cd "$name"
                     else
-                        line=("Run $name" "Edit $name")
+                        line=("Edit $name" "Run $name")
                         [[ $__GIT_CHANGES__ =~ \;[!]*"$name"\; ]] && line+=("Git: diff $name" "Git: stage $name" "Git: commit $name" "Git: revert $name" "Git...")
                         [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=("Git: add $name")
                         local op="$(menu "${line[@]}" --color-func paint_cyan --no-footer)"
