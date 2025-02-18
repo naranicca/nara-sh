@@ -692,13 +692,15 @@ generate_new_filename() {
 }
 
 cpmv() {
-    local src dst src_name dst_name i
+    local src dst src_name dst_name silent=0 i
     local op='cp -r' && [[ $1 == --mv ]] && op='mv'
     while true; do
         if [[ $1 == --cp ]]; then
             op='cp -r'
         elif [[ $1 == --mv ]]; then
             op=mv
+        elif [[ $1 == --silent ]]; then
+            silent=1
         else
             break
         fi
@@ -712,7 +714,7 @@ cpmv() {
             if [[ -e "$dst" && -e "$dst/$src_name" ]]; then
                 dst_name="$(generate_new_filename "$dst/$src_name")"
             fi
-            echo -e "[${op%% *}] $(put_filecolor "$src")${src/#$HOME\//\~\/}\e[0m --> $dst_name"
+            [[ $silent -ne 0 ]] && echo -e "[${op%% *}] $(put_filecolor "$src")${src/#$HOME\//\~\/}\e[0m --> $dst_name"
             command $op "$src" "$dst_name"
         else
             echo "$1 does not exist" >&2
@@ -786,7 +788,6 @@ disk() {
         local s0=() && local s1=()
         local total=0
         local ret
-        echo -e "\r\033[4m$NSH_COLOR_DIR$PWD\033[0m ($(get_hsize $total))"
         while read f; do
             if [[ -d "$f" ]]; then
                 if [[ "$f" == \.\. ]]; then
@@ -826,6 +827,7 @@ disk() {
             files[$idx]="$t"
         done
 
+        echo -e "\r\033[4m$NSH_COLOR_DIR$PWD\033[0m ($(get_hsize $total))\e[K"
         ret="$(for ((i=0; i<${#files[@]}; i++)); do
             local p='            ' && [[ ${sideinfo[$i]} -ge 0 ]] && p="[${bars[$(((${sideinfo[$i]}*100/$total+5)/10))]}]"
             printf "%8s %s\n" "$(get_hsize ${sideinfo[$i]})" "$p $(put_filecolor "${files[$i]}")${files[$i]}"
@@ -876,9 +878,8 @@ git_status()  {
                             filenames="${filenames//\;++$fname\;/\;}"
                         fi
                     fi
-                    filenames="$filenames;${fname%%/*}"
+                    filenames="$filenames;$fname"
                 fi
-                #break
                 ;;
             *Your\ branch*ahead*)
                 line="${line% *}"
@@ -1100,9 +1101,21 @@ git() {
                             color_slash() {
                                 [[ "$1" == */ ]] && echo "$NSH_COLOR_DIR$1"
                             }
+                            sort_git_show() {
+                                local line dirs=() files=()
+                                while read line; do
+                                    if [[ "$line" == */ ]]; then
+                                        dirs+=("$line")
+                                    else
+                                        files+=("$line")
+                                    fi
+                                done
+                                printf "%s\n" "${dirs[@]}"
+                                printf "%s\n" "${files[@]}"
+                            }
                             while true; do
                                 echo "$NSH_PROMPT ${path:-$'\b'} on $branch"
-                                local p="$(command git show --color=always "$branch:$path" | tail -n +2 | menu -c 1 --color-func color_slash --can-select selfn --key H 'echo ..')"
+                                local p="$(command git show --color=always "$branch:$path" | tail -n +2 | sort_git_show | menu -c 1 --color-func color_slash --can-select selfn --key H 'echo ..')"
                                 [[ -z $p ]] && break
                                 p="$(strip_escape "$p")"
                                 if [[ "$p" == .. ]]; then
@@ -1300,16 +1313,11 @@ play2048() {
 }
 
 read_string() {
-    read_command --no-tab-completion --no-history "$@"
-}
-
-read_command() {
     local prefix=
     local cmd=
     local cur=0
     local pre post cand word chunk
     local iword ichunk
-    local enable_tab_completion=1 enable_history=1
     local KEY
 
     while true; do
@@ -1321,10 +1329,118 @@ read_command() {
             cmd="$2" && cur=${#cmd}
             shift
             echo -n "$cmd" >&2
-        elif [[ $1 == --no-tab-completion ]]; then
-            enable_tab_completion=0
-        elif [[ $1 == --no-history ]]; then
-            enable_history=0
+        else
+            break
+        fi
+        shift
+    done
+    iword=$cur && [[ "$cmd" == *\ * ]] && iword="${cmd% *} " && iword=${#iword}
+    ichunk=$iword
+
+    show_cursor
+    while true; do
+        pre="${cmd:0:$cur}"
+        post="${cmd:$cur}"
+        KEY="$NEXT_KEY" && NEXT_KEY= && [[ -z $KEY ]] && get_key KEY
+        case $KEY in
+            $'\e') # ESC
+                if [[ -n $cmd ]]; then
+                    cmd="$prefix$cmd" && echo -ne "${cmd//?/$'\b'}\r$prefix\e[J" >&2
+                    cmd=
+                    cur=0
+                else
+                    cmd=
+                    break
+                fi
+                ;;
+            $'\04') # ctrl+D
+                echo '^C' >&2
+                cmd=
+                break
+                ;;
+            $'\n') # enter
+                echo >&2
+                break
+                ;;
+            $'\177'|$'\b') # backspace
+                if [[ $cur -gt 0 ]]; then
+                    echo -n $'\b \b'"$post ${post//?/$'\b'}"$'\b' >&2
+                    cmd="${pre%?}$post"
+                    cur=$((cur-1))
+                    # update iword
+                    if [[ $cur -le $iword ]]; then
+                        pre="${cmd:0:$cur}"
+                        if [[ $pre == *\ * ]]; then
+                            pre="${pre% *} "
+                            iword=${#pre}
+                        else
+                            iword=0
+                        fi
+                    fi
+                fi
+                ;;
+            $'\e[3~') # del
+                if [[ -n "$post" ]]; then
+                    post="${post#?}"
+                    echo -n "$post "$'\b'"${post//?/$'\b'}"
+                    cmd="$pre$post"
+                fi
+                ;;
+            $'\e[C') # right
+                if [[ $cur -lt ${#cmd} ]]; then
+                    echo -ne "${cmd:$cur:1}" >&2
+                    cur=$((cur+1))
+                    iword="${cmd:0:$cur}" && iword="${iword% *} " && iword=${#iword}
+                    ichunk=$iword
+                fi
+                ;;
+            $'\e[D') # left
+                if [[ $cur -gt 0 ]]; then
+                    echo -ne '\b' >&2
+                    cur=$((cur-1))
+                    iword="${cmd:0:$cur}" && iword="${iword% *} " && iword=${#iword}
+                    ichunk=$iword
+                fi
+                ;;
+            $'\e[1~'|$'\e[H') # home
+                cur="$prefix$cmd" && echo -ne "${cur//?/$'\b'}\r$prefix" >&2
+                cur=0
+                ;;
+            $'\e[4~'|$'\e[F') # end
+                echo -ne "\e[$((${#prefix}+${#cmd}))D$prefix$cmd" >&2
+                cur=${#cmd}
+                ;;
+            [[:print:]])
+                cmd="$pre$KEY$post"
+                cur=$((cur+1))
+                if [[ $KEY == \  ]]; then
+                    iword=$cur
+                    ichunk=$cur
+                fi
+                echo -n "$KEY$post${post//?/$'\b'}" >&2
+                ;;
+        esac
+    done
+    printf -v "${1:-cmd}" "%s" "$cmd"
+}
+
+read_command() {
+    local prefix=
+    local cmd=
+    local cur=0
+    local pre post cand word chunk
+    local iword ichunk
+    local KEY
+
+    while true; do
+        if [[ $1 == --prefix ]]; then
+            prefix="$2"
+            shift
+            echo -ne "\r\e[0m$prefix" >&2
+        elif [[ $1 == --initial ]]; then
+            cmd="$2" && cur=${#cmd}
+            shift
+            echo -n "$cmd" >&2
         else
             break
         fi
@@ -1342,7 +1458,7 @@ read_command() {
         case $KEY in
             $'\e') # ESC
                 if [[ -n $cmd ]]; then
-                    echo -ne "\e[$((${#prefix}+${#cmd}))D\e[J$prefix" >&2
+                    cmd="$prefix$cmd" && echo -ne "${cmd//?/$'\b'}\r$prefix\e[J" >&2
                     cmd=
                     cur=0
                 else
@@ -1394,7 +1510,7 @@ read_command() {
                 #    iword   ichunk
                 if [[ -z $cmd ]]; then
                     NEXT_KEY=$'\e'
-                elif [[ $enable_tab_completion -ne 0 ]]; then
+                else
                     local quote=
                     while true; do
                         chunk="${pre:$ichunk}"
@@ -1449,22 +1565,18 @@ read_command() {
                 fi
                 ;;
             $'\e[A') # up
-                if [[ $enable_history -ne 0 && ${#history[@]} -gt 0 ]]; then
-                    echo -e "${pre//?/\\b}\r$prefix\e[J" >&2
-                    cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
-                    [[ "$cmd" == ////////* ]] && cmd="${cmd:8:$((${#cmd}-8))}" && NEXT_KEY=$'\n'
-                    cur=${#cmd}
-                    echo -ne "\e[A${prefix//?/\\b}\r$prefix$cmd\e[J" >&2
-                fi
+                echo -e "${pre//?/\\b}\r$prefix\e[J" >&2
+                cmd="$(menu "${history[@]}" -c 1 --initial "$HISTSIZE" --key ' ' 'echo "$1 "' --key $'\n' 'echo "////////$1"' --key $'\177'$'\b ' 'echo "${1%?}"')"
+                [[ "$cmd" == ////////* ]] && cmd="${cmd:8:$((${#cmd}-8))}" && NEXT_KEY=$'\n'
+                cur=${#cmd}
+                echo -ne "\e[A${prefix//?/\\b}\r$prefix$cmd\e[J" >&2
                 ;;
             $'\e[B') # down
-                if [[ $enable_history -ne 0 ]]; then
-                    if [[ -z $cmd ]]; then
-                        NEXT_KEY=$'\e'
-                    else
-                        cmd=
-                        cur=0
-                    fi
+                if [[ -z $cmd ]]; then
+                    NEXT_KEY=$'\e'
+                else
+                    cmd=
+                    cur=0
                 fi
                 ;;
             $'\e[C') # right
@@ -1484,7 +1596,7 @@ read_command() {
                 fi
                 ;;
             $'\e[1~'|$'\e[H') # home
-                echo -ne "\e[$((${#prefix}+${#cmd}))D$prefix" >&2
+                cur="$prefix$cmd" && echo -ne "${cur//?/$'\b'}\r$prefix" >&2
                 cur=0
                 ;;
             $'\e[4~'|$'\e[F') # end
@@ -1492,8 +1604,8 @@ read_command() {
                 cur=${#cmd}
                 ;;
             $'\e[21~') # F10
-                cmd='nsh menu'
-                echo -e "\e[$((${#prefix}+${#cmd}))D$prefix$cmd\e[J" >&2
+                cmd="$prefix$cmd" && echo -ne "${cmd//?/$'\b'}\r${prefix}nsh\e[J" >&2
+                cmd=nsh
                 break
                 ;;
             $'\e'*)
@@ -1864,7 +1976,7 @@ nsh_main_loop() {
                 elif [[ $mode == fetch ]]; then
                     extra_params+=(--can-select select_file)
                 fi
-                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////open////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' "${extra_params[@]}")
+                IFS=$'\n' read -d '' -a ret < <(menu "${dirs[@]}" "${files[@]}" --color-func put_filecolor --marker-func git_marker --key $'\t' 'print_selected force' --key $'\n' 'echo ////enter////; print_selected force' --key '.' 'echo "////dotglob////"' --key '~' 'echo $HOME' --key r 'echo ./' --key ':' 'echo "////////"; print_selected; quit; echo >&2' --key H 'echo ../' --key y 'echo "////yank////"; print_selected force' --key p 'echo "////paste////"' --key d 'echo "////delete////"; print_selected force' --key i 'echo "////rename////"; echo "$1"; quit' --key - 'echo "////back////"' --key m 'echo "////mark////"' --key \' 'echo "////bookmark////"' "${extra_params[@]}")
                 if [[ ${#ret[@]} -eq 0 ]]; then
                     [[ -n $mode ]] && echo -e "\e[A\e[A\r\e[J"
                     mode=
@@ -1877,7 +1989,7 @@ nsh_main_loop() {
                         nsh menu
                         echo -e "\e[A"
                     else
-                        if [[ "${ret[0]}" == '////open////' ]]; then # enter key
+                        if [[ "${ret[0]}" == '////enter////' ]]; then # enter key
                             unset ret[0]
                             if [[ $mode == add ]]; then
                                 mode=
@@ -2020,22 +2132,22 @@ nsh_main_loop() {
                             fi
                             break
                         elif [[ $op == *diff* ]]; then
-                            echo -e "\e[A\r$(nsh_print_prompt)git diff $fname\e[J"
+                            echo -e "\e[A\r$(nsh_print_prompt)git diff $name\e[J"
                             git diff "$name"
                             git -- "$name"
                             echo
                         elif [[ $op == *add* || $op == *stage* ]]; then
-                            echo -e "\e[A\r$(nsh_print_prompt)git add $fname\e[J"
+                            echo -e "\e[A\r$(nsh_print_prompt)git add $name\e[J"
                             git add "$name"
                             git
                             echo
                         elif [[ $op == *commit* ]]; then
-                            echo -e "\e[A\r$(nsh_print_prompt)git commit $fname\e[J"
+                            echo -e "\e[A\r$(nsh_print_prompt)git commit $name\e[J"
                             git commit "$name"
                             git
                             echo
                         elif [[ $op == *revert* ]]; then
-                            echo -e "\e[A\r$(nsh_print_prompt)git checkout -- $fname\e[J"
+                            echo -e "\e[A\r$(nsh_print_prompt)git checkout -- $name\e[J"
                             git checkout -- "$name"
                             git
                             echo
