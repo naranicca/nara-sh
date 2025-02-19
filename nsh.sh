@@ -1606,7 +1606,7 @@ read_command() {
             $'\e[21~') # F10
                 cmd="$prefix$cmd" && echo -ne "${cmd//?/$'\b'}\r${prefix}nsh\e[J" >&2
                 cmd=nsh
-                break
+                NEXT_KEY=$'\n'
                 ;;
             $'\e'*)
                 ;;
@@ -1712,7 +1712,7 @@ nsh_main_loop() {
                 return
                 ;;
             bookmarks)
-                ret="$(menu "${bookmarks[@]/:/ $NSH_COLOR_DIR}" -c 1)"
+                ret="$(menu --raw "${bookmarks[@]/:/ $NSH_COLOR_DIR}" -c 1)"
                 [[ -n "$ret" ]] && cd "$(strip_escape "${ret#??}")" && NEXT_KEY=$'\e'
                 return
                 ;;
@@ -1749,7 +1749,7 @@ nsh_main_loop() {
                 local user nice system idle iowait irq softirq steal guest
                 local line filesystem disk disk_size disk_used disk_avail
                 local process size
-                local str bs i=10
+                local str bs i=10 x=0 y=0 c0 c1 cps psparam pid
                 hide_cursor
                 disable_line_wrapping
                 while true; do
@@ -1787,23 +1787,67 @@ nsh_main_loop() {
                     i=$((i+1))
                     # process
                     get_terminal_size && size=$(($LINES*20/100))
+                    c0=$'\e[0m' && [[ $x -eq 0 ]] && c0=$'\e[30;46m' && psparam="--sort=-%cpu"
+                    c1=$'\e[0m' && [[ $x -eq 1 ]] && c1=$'\e[30;46m' && psparam="--sort=-%mem"
                     process=()
                     while IFS= read line; do
                         process+=("$line")
-                    done < <(ps aux --sort=-%cpu 2>/dev/null || ps aux 2>/dev/null)
+                    done < <(ps aux "$psparam" 2>/dev/null || ps aux 2>/dev/null)
 
-                    printf '\rCPU: %3s%% | MEM: %3s%% | DISK: %s%% (%s/%s, %s free)\n' $cpu $mem "$disk" "$disk_used" "$disk_size" "$disk_avail"
+                    printf '\r%bCPU: %3s%% \e[0m|%b MEM: %3s%% \e[0m| DISK: %s%% (%s/%s, %s free)\e[K\n' $c0 $cpu $c1 $mem "$disk" "$disk_used" "$disk_size" "$disk_avail"
                     for ((i=0; i<size; i++)); do
-                        if [[ $i -eq $((size-1)) ]]; then
-                            echo -n "${process[$i]}"
+                        cps=$'\e[0m' && [[ $i -eq $y ]] && cps=$'\e[7m'
+                        if [[ $i -eq 0 ]]; then
+                            echo -ne "\e[30;46m${process[$i]:0:$((COLUMNS-1))}\e[K\e[0m"
                         else
-                            echo "${process[$i]}"
+                            echo -ne "\n$cps${process[$i]:0:$((COLUMNS-1))}\e[K\e[0m"
                         fi
                     done
                     bs="${process[$((size-1))]//?/\\b}"
 
                     get_key -t 2 KEY
-                    [[ -n $KEY ]] && break
+                    case "$KEY" in
+                        $'\e'|q)
+                            [[ $y -eq 0 ]] && break
+                            y=0
+                            ;;
+                        l|$'\e[C')
+                            x=$((x+1)) && [[ $x -ge 2 ]] && x=0
+                            y=0
+                            ;;
+                        h|$'\e[D')
+                            x=$((x-1)) && [[ $x -lt 0 ]] && x=1
+                            y=0
+                            ;;
+                        j|$'\e[B')
+                            y=$((y+1)) && [[ $y -ge $size ]] && y=$((size-1))
+                            ;;
+                        k|$'\e[A')
+                            y=$((y-1)) && [[ $y -lt 0 ]] && y=0
+                            ;;
+                        $'\n')
+                            search_pid_from_header() {
+                                local i=0
+                                while [[ $# -gt 0 ]]; do
+                                    [[ $1 == PID ]] && echo $i && return
+                                    i=$((i+1))
+                                    shift
+                                done
+                            }
+                            i=$(search_pid_from_header ${process[0]})
+                            line=(`echo ${process[$y]}`)
+                            pid=${line[$i]}
+                            echo -ne "\n$NSH_PROMPT Kill process $pid? (y/n) "
+                            get_key KEY; echo -n "$KEY"
+                            if [[ yY == *$KEY* ]]; then
+                                echo -e "\r$NSH_PROMPT kill -9 $pid\e[J"
+                                kill -9 $pid
+                                break
+                            else
+                                echo -ne '\r\e[J\e[A'
+                            fi
+                            ;;
+                    esac
                     echo -ne "$bs\e[${size}A"
                 done
                 show_cursor
@@ -2116,7 +2160,7 @@ nsh_main_loop() {
                     if [[ -d "$name" ]]; then
                         cd "$name"
                     else
-                        line=("Edit $name" "Run $name")
+                        line=("Edit $name" "Run $name" "Copy $name")
                         [[ $__GIT_CHANGES__ =~ \;[!]*"$name"\; ]] && line+=("Git: diff $name" "Git: stage $name" "Git: commit $name" "Git: revert $name" "Git...")
                         [[ $__GIT_CHANGES__ == *\;\?\?"$name"\;* ]] && line+=("Git: add $name")
                         local op="$(menu "${line[@]}" --color-func paint_cyan --no-footer)"
@@ -2131,6 +2175,9 @@ nsh_main_loop() {
                                 ret="$name"
                             fi
                             break
+                        elif [[ $op == Copy* ]]; then
+                            register=("$name")
+                            register_mode=--cp
                         elif [[ $op == *diff* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git diff $name\e[J"
                             git diff "$name"
