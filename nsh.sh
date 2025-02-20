@@ -219,9 +219,9 @@ fuzzy_word() {
         fuzzy_word "$word"
     else
         if [[ $1 == *$ ]]; then
-            echo $p "${1:-*}" | sed -e 's/[^.^~^/^*]/*&*/g' -e 's/\*\*/\*/g' -e 's/[\*]*\$[\*]*$//'
+            echo $p "${1:-*}*" | sed -e 's/[^.^~^/^*]/*&*/g' -e 's/\*\*/\*/g' -e 's/[\*]*\$[\*]*$//'
         else
-            echo $p "${1:-*}" | sed -e 's/[^.^~^/^*]/*&*/g' -e 's/\*\*/\*/g'
+            echo $p "${1:-*}*" | sed -e 's/[^.^~^/^*]/*&*/g' -e 's/\*\*/\*/g'
         fi
     fi
 }
@@ -243,7 +243,7 @@ menu() {
     local item trail
     local len w=0
     local cols rows max_cols max_rows c r i j
-    local x=0 y=0 icol=0 irow=0 idx
+    local x=0 y=0 icol=0 irow=0 idx x_old
     local wcparam=-L && [[ "$(wc -L <<< "가나다" 2>/dev/null)" != 6 ]] && wcparam=-c
     local color_func marker_func initial=0
     local return_key=() return_fn=() keys
@@ -460,6 +460,7 @@ menu() {
 
     move_cursor() {
         local xpre=$x ypre=$y icolpre=$icol irowpre=$irow
+        local draw=1 && [[ $1 == --no-draw ]] && draw=0 && shift
         x=$((x+$1))
         y=$((y+$2))
         if [[ $1 -lt 0 ]]; then
@@ -490,26 +491,28 @@ menu() {
 
         local newidx=$((irow+y+(icol+x)*rows))
         if [[ -n ${list[$newidx]} ]]; then
-            if [[ $icolpre -ne $icol || irowpre -ne $irow ]]; then
-                for ((i=0; i<rows; i++)); do
-                    draw_line $i
-                done
-            else
-                if [[ $y -ne $ypre ]]; then
-                    [[ $ypre -gt 0 ]] && echo -ne "\e[${ypre}B" >&2
-                    draw_line $ypre
-                    if [[ $ypre -ne $((rows-1)) ]]; then
-                        echo -ne "\e[${COLUMNS}D" >&2
-                        echo -ne "\e[$((ypre+1))A" >&2
+            if [[ $draw -ne 0 ]]; then
+                if [[ $icolpre -ne $icol || irowpre -ne $irow ]]; then
+                    for ((i=0; i<rows; i++)); do
+                        draw_line $i
+                    done
+                else
+                    if [[ $y -ne $ypre ]]; then
+                        [[ $ypre -gt 0 ]] && echo -ne "\e[${ypre}B" >&2
+                        draw_line $ypre
+                        if [[ $ypre -ne $((rows-1)) ]]; then
+                            echo -ne "\e[${COLUMNS}D" >&2
+                            echo -ne "\e[$((ypre+1))A" >&2
+                        fi
                     fi
-                fi
-                [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
-                draw_line $y
-                if [[ $y -lt $((rows-1)) ]]; then
-                    [[ $((rows-2-y)) -gt 0 ]] && echo -ne "\e[$((rows-2-y))B" >&2
-                    echo -ne "\e[${COLUMNS}C" >&2
-                    draw_footer
-                    echo -ne "\e[${COLUMNS}D\e[$((rows-1))A" >&2
+                    [[ $y -gt 0 ]] && echo -ne "\e[${y}B" >&2
+                    draw_line $y
+                    if [[ $y -lt $((rows-1)) ]]; then
+                        [[ $((rows-2-y)) -gt 0 ]] && echo -ne "\e[$((rows-2-y))B" >&2
+                        echo -ne "\e[${COLUMNS}C" >&2
+                        draw_footer
+                        echo -ne "\e[${COLUMNS}D\e[$((rows-1))A" >&2
+                    fi
                 fi
             fi
         else
@@ -554,7 +557,18 @@ menu() {
         if [[ $found -eq 0 ]]; then
             case $KEY in
                 l|$'\e[C')
+                    x_old=$x
                     move_cursor 1 0
+                    if [[ $cols -gt 1 && $x -eq $x_old ]]; then
+                        if [[ $((irow+rows+(icol+x)*rows)) -lt $list_size ]]; then
+                            for ((i=0; i<rows; i++)); do
+                                move_cursor --no-draw 0 1
+                            done
+                            for ((i=0; i<rows; i++)); do
+                                draw_line $i
+                            done
+                        fi
+                    fi
                     ;;
                 h|$'\e[D')
                     move_cursor -1 0
@@ -566,7 +580,14 @@ menu() {
                     move_cursor 0 -1
                     ;;
                 0)
-                    move_cursor -$max_cols 0
+                    if [[ $((x+icol)) -gt 0 ]]; then
+                        move_cursor -$max_cols 0
+                    else
+                        x=0 icol=0 y=0 irow=0
+                        for ((i=0; i<rows; i++)); do
+                            draw_line $i
+                        done
+                    fi
                     ;;
                 g)
                     x=0 y=0 icol=0 irow=0
@@ -574,8 +595,8 @@ menu() {
                     ;;
                 G)
                     if [[ $cols -gt 1 ]]; then
-                        for ((i=0; i<max_cols; i++)); do move_cursor 1 0; done
-                        for ((i=0; i<max_rows; i++)); do move_cursor 0 1; done
+                        for ((i=0; i<$list_size; i++)); do move_cursor --no-draw 0 1; done
+                        for ((i=0; i<$rows; i++)); do draw_line $i; done
                     else
                         move_cursor 0 $max_rows
                     fi
@@ -1477,7 +1498,7 @@ read_command() {
                 break
                 ;;
             $'\n') # enter
-                echo >&2
+                echo "$post" >&2
                 break
                 ;;
             $'\177'|$'\b') # backspace
@@ -1753,46 +1774,50 @@ nsh_main_loop() {
                 hide_cursor
                 disable_line_wrapping
                 while true; do
-                    # cpu usage
-                    if read __cpu user nice system idle iowait irq softirq steal guest 2>/dev/null < /proc/stat; then
-                        if [[ -z $cpu_activ_prev ]]; then
-                            cpu_activ_prev=$((user+system+nice+softirq+steal))
-                            cpu_total_prev=$((user+system+nice+softirq+steal+idle+iowait))
-                            cpu=-
-                            sleep 1s
-                            continue
+                    if [[ $y -eq 0 ]]; then
+                        # cpu usage
+                        if read __cpu user nice system idle iowait irq softirq steal guest 2>/dev/null < /proc/stat; then
+                            if [[ -z $cpu_activ_prev ]]; then
+                                cpu_activ_prev=$((user+system+nice+softirq+steal))
+                                cpu_total_prev=$((user+system+nice+softirq+steal+idle+iowait))
+                                cpu=-
+                                sleep 1s
+                                continue
+                            else
+                                cpu_activ_cur=$((user+system+nice+softirq+steal))
+                                cpu_total_cur=$((user+system+nice+softirq+steal+idle+iowait))
+                                cpu=$((((cpu_activ_cur-cpu_activ_prev)*1000/(cpu_total_cur-cpu_total_prev)+5)/10))
+                                cpu_activ_prev=$cpu_activ_cur
+                                cpu_total_prev=$cpu_total_cur
+                            fi
                         else
-                            cpu_activ_cur=$((user+system+nice+softirq+steal))
-                            cpu_total_cur=$((user+system+nice+softirq+steal+idle+iowait))
-                            cpu=$((((cpu_activ_cur-cpu_activ_prev)*1000/(cpu_total_cur-cpu_total_prev)+5)/10))
-                            cpu_activ_prev=$cpu_activ_cur
-                            cpu_total_prev=$cpu_total_cur
+                            cpu=-
                         fi
-                    else
-                        cpu=-
+                        # memory usage
+                        mem=(`free -m 2>/dev/null | grep '^Mem:'`)
+                        if [ -z "$mem" ]; then
+                            mem=-
+                        else
+                            mem=$(((${mem[2]}*1000/${mem[1]}+5)/10))
+                        fi
+                        # disk usage
+                        if [[ $i -eq 10 ]]; then
+                            line="$(df -h . 2>/dev/null | tail -n 1)" && line="${line%%%*}"
+                            IFS=\  read filesystem disk_size disk_used disk_avail disk <<< "$line"
+                            i=0
+                        fi
+                        i=$((i+1))
                     fi
-                    # memory usage
-                    mem=(`free -m 2>/dev/null | grep '^Mem:'`)
-                    if [ -z "$mem" ]; then
-                        mem=-
-                    else
-                        mem=$(((${mem[2]}*1000/${mem[1]}+5)/10))
-                    fi
-                    # disk usage
-                    if [[ $i -eq 10 ]]; then
-                        line="$(df -h . 2>/dev/null | tail -n 1)" && line="${line%%%*}"
-                        IFS=\  read filesystem disk_size disk_used disk_avail disk <<< "$line"
-                        i=0
-                    fi
-                    i=$((i+1))
                     # process
                     get_terminal_size && size=$(($LINES*20/100))
                     c0=$'\e[0m' && [[ $x -eq 0 ]] && c0=$'\e[30;46m' && psparam="--sort=-%cpu"
                     c1=$'\e[0m' && [[ $x -eq 1 ]] && c1=$'\e[30;46m' && psparam="--sort=-%mem"
-                    process=()
-                    while IFS= read line; do
-                        process+=("$line")
-                    done < <(ps aux "$psparam" 2>/dev/null || ps aux 2>/dev/null)
+                    if [[ $y -eq 0 ]]; then
+                        process=()
+                        while IFS= read line; do
+                            process+=("$line")
+                        done < <(ps aux "$psparam" 2>/dev/null || ps aux 2>/dev/null)
+                    fi
 
                     printf '\r%bCPU: %3s%% \e[0m|%b MEM: %3s%% \e[0m| DISK: %s%% (%s/%s, %s free)\e[K\n' $c0 $cpu $c1 $mem "$disk" "$disk_used" "$disk_size" "$disk_avail"
                     for ((i=0; i<size; i++)); do
@@ -1840,12 +1865,9 @@ nsh_main_loop() {
                             echo -ne "\n$NSH_PROMPT Kill process $pid? (y/n) "
                             get_key KEY; echo -n "$KEY"
                             if [[ yY == *$KEY* ]]; then
-                                echo -e "\r$NSH_PROMPT kill -9 $pid\e[J"
-                                kill -9 $pid
-                                break
-                            else
-                                echo -ne '\r\e[J\e[A'
+                                kill -9 $pid || break
                             fi
+                            echo -ne '\r\e[J\e[A'
                             ;;
                     esac
                     echo -ne "$bs\e[${size}A"
@@ -2071,7 +2093,11 @@ nsh_main_loop() {
                                 cd "${ret[1]}"
                                 break
                             else
-                                ret="$(printf '"%s" ' "${ret[@]}")"
+                                for ((i=1; i<=${#ret[@]}; i++)); do
+                                    [[ -x "${ret[$i]}" ]] && ret[$i]="./${ret[$i]}"
+                                    eval "[[ -e ${ret[$i]} ]] && echo" &>/dev/null || ret[$i]=\"${ret[$i]}\"
+                                done
+                                ret="$(printf '%s ' "${ret[@]}")" && ret="${ret% }"
                                 break
                             fi
                         elif [[ "${ret[0]}" == '////yank////' ]]; then
@@ -2167,10 +2193,10 @@ nsh_main_loop() {
                         if [[ $op == Edit* ]]; then
                             $NSH_DEFAULT_EDITOR "$name"
                         elif [[ $op == Run* ]]; then
+                            [[ -x "$name" ]] && name="./$name"
+                            eval "[[ -e $name ]] && echo" &>/dev/null || name=\"$name\"
                             if [[ $name == *.py ]]; then
                                 ret="python $name"
-                            elif [[ -x "$name" ]]; then
-                                ret="./$name"
                             else
                                 ret="$name"
                             fi
@@ -2178,22 +2204,22 @@ nsh_main_loop() {
                         elif [[ $op == Copy* ]]; then
                             register=("$name")
                             register_mode=--cp
-                        elif [[ $op == *diff* ]]; then
+                        elif [[ $op == Git:\ diff* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git diff $name\e[J"
                             git diff "$name"
                             git -- "$name"
                             echo
-                        elif [[ $op == *add* || $op == *stage* ]]; then
+                        elif [[ $op == Git:\ add* || $op == Git:\ stage* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git add $name\e[J"
                             git add "$name"
                             git
                             echo
-                        elif [[ $op == *commit* ]]; then
+                        elif [[ $op == Git:\ commit* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git commit $name\e[J"
                             git commit "$name"
                             git
                             echo
-                        elif [[ $op == *revert* ]]; then
+                        elif [[ $op == Git:\ revert* ]]; then
                             echo -e "\e[A\r$(nsh_print_prompt)git checkout -- $name\e[J"
                             git checkout -- "$name"
                             git
