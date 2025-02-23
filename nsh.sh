@@ -1625,7 +1625,7 @@ read_command() {
                 cur=${#cmd}
                 ;;
             $'\e[21~') # F10
-                cmd="$prefix$cmd" && echo -ne "${cmd//?/$'\b'}\r${prefix}nsh\e[J" >&2
+                cmd="$prefix$cmd" && echo -ne "${cmd//?/$'\b'}\r${prefix}\e[J" >&2
                 cmd=nsh
                 NEXT_KEY=$'\n'
                 ;;
@@ -1674,7 +1674,7 @@ nsh_main_loop() {
     local mode pw line
     local history=() history_size=0
     local bookmarks=() bookmark_size=0
-    local command ret
+    local prefix command ret
     local register register_mode
     local trash_path=~/.cache/nsh/trash
     local tbeg telapsed
@@ -2000,8 +2000,7 @@ nsh_main_loop() {
     }
     update_dotglob
     draw_titlebar() {
-        local prefix
-        [[ -n $mode ]] && prefix="\e[0;30;45mSelect"
+        prefix= && [[ -n $mode ]] && prefix="\e[0;30;45mSelect"
         echo -e "\r$prefix$(nsh_print_prompt)\e[J"
     }
     paint_cyan() {
@@ -2010,7 +2009,8 @@ nsh_main_loop() {
 
     mode=
     while true; do
-        read_command --prefix "$(nsh_print_prompt)" --initial "$command" command
+        prefix="$(nsh_print_prompt)"
+        read_command --prefix "$prefix" --initial "$command" command
 
         if [[ "$command" == exit || "$command" == exit\ * ]]; then
             ret="$(strip_spaces "${command#exit}")"
@@ -2234,10 +2234,10 @@ nsh_main_loop() {
                     fi
                 fi
                 hide_cursor
-                echo -ne '\e[A\e[0m\r' >&2
+                echo -ne "\e[A${prefix//?/\\b}\r\e[0m" >&2
             done
             hide_cursor
-            echo -ne '\e[A\e[0m\r' >&2
+            echo -ne "\e[A${prefix//?/\\b}\r\e[0m" >&2
             [[ -n $ret ]] && command="$ret " || command=
         elif [[ -n $command ]]; then
             nsheval
